@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
 <title>SovereignOS™ — Tribal Grants & Compliance Platform</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -72,44 +71,31 @@ const { useState, useEffect, useRef, useCallback } = React;
 // ─────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────
-// ── SUPABASE CONFIG ──────────────────────────
-const SUPABASE_URL = "https://sxosyyjozchfzupayiis.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4b3N5eWpvemNoZnp1cGF5aWlzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2MDA1MTgsImV4cCI6MjA5ODE3NjUxOH0.8HDYBfdxY7ziON2wlhzknBf-bK_fDlPmqn9g-sPA-H8";
-let supabaseClient = null;
-try {
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-} catch(e) { console.warn("Supabase not available"); }
-
-async function cloudSaveGrant(email, grantName, grantData) {
-  if (!supabaseClient || !email) return false;
+// SUPABASE
+const SUPA_URL = "https://sxosyyjozchfzupayiis.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4b3N5eWpvemNoZnp1cGF5aWlzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2MDA1MTgsImV4cCI6MjA5ODE3NjUxOH0.8HDYBfdxY7ziON2wlhzknBf-bK_fDlPmqn9g-sPA-H8";
+let sb = null;
+try { sb = window.supabase.createClient(SUPA_URL, SUPA_KEY); } catch(e) {}
+async function cloudSave(email, name, data) {
+  if (!sb||!email) return false;
   try {
-    const { data: existing } = await supabaseClient.from('sos_grants').select('id').eq('user_email', email).eq('grant_name', grantName).maybeSingle();
-    if (existing) {
-      const { error } = await supabaseClient.from('sos_grants').update({ grant_data: grantData, updated_at: new Date().toISOString() }).eq('id', existing.id);
-      return !error;
-    } else {
-      const { error } = await supabaseClient.from('sos_grants').insert({ user_email: email, grant_name: grantName, grant_data: grantData });
-      return !error;
-    }
-  } catch(e) { console.warn("Cloud save failed:", e.message); return false; }
+    const {data:ex} = await sb.from('sos_grants').select('id').eq('user_email',email).eq('grant_name',name).maybeSingle();
+    if (ex) { const {error} = await sb.from('sos_grants').update({grant_data:data,updated_at:new Date().toISOString()}).eq('id',ex.id); return !error; }
+    else { const {error} = await sb.from('sos_grants').insert({user_email:email,grant_name:name,grant_data:data}); return !error; }
+  } catch(e) { return false; }
 }
-
-async function cloudLoadGrants(email) {
-  if (!supabaseClient || !email) return [];
+async function cloudLoad(email) {
+  if (!sb||!email) return [];
   try {
-    const { data, error } = await supabaseClient.from('sos_grants').select('*').eq('user_email', email).order('updated_at', { ascending: false });
-    if (error || !data) return [];
-    return data.map(row => ({ id: row.id, grantName: row.grant_name, savedAt: new Date(row.updated_at).toLocaleDateString(), drafts: row.grant_data.drafts||{}, nofoAnalysis: row.grant_data.nofoAnalysis||null, nofoText: row.grant_data.nofoText||"", projectDesc: row.grant_data.projectDesc||"", matchSource: row.grant_data.matchSource||"", complianceResults: row.grant_data.complianceResults||null, tracker: row.grant_data.tracker||{ conditions:[], purchases:[], timeEntries:[] } }));
-  } catch(e) { console.warn("Cloud load failed:", e.message); return []; }
+    const {data,error} = await sb.from('sos_grants').select('*').eq('user_email',email).order('updated_at',{ascending:false});
+    if (error||!data) return [];
+    return data.map(r=>({id:r.id,grantName:r.grant_name,savedAt:new Date(r.updated_at).toLocaleDateString(),...r.grant_data}));
+  } catch(e) { return []; }
 }
-
-async function cloudDeleteGrant(id) {
-  if (!supabaseClient) return false;
-  try { const { error } = await supabaseClient.from('sos_grants').delete().eq('id', id); return !error; }
-  catch(e) { return false; }
+async function cloudDelete(id) {
+  if (!sb) return false;
+  try { const {error} = await sb.from('sos_grants').delete().eq('id',id); return !error; } catch(e) { return false; }
 }
-// ─────────────────────────────────────────────
-
 const C = {
   navy: "#0B1F3A", navyDark: "#061424", navyLight: "#122844",
   gold: "#C8A96A", goldLight: "#D4B87A",
@@ -667,101 +653,72 @@ function GrantApp({ user }) {
   const [newPurchase, setNewPurchase] = useState({ desc:"", amount:"", vendor:"", budget:"" });
   const [newTime, setNewTime] = useState({ employee:"", hours:"", task:"", date:"" });
   const [customApiKey, setCustomApiKey] = useState(localStorage.getItem("sos_apikey")||"");
-  const [showApiInput, setShowApiInput] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(!localStorage.getItem("sos_onboarded"));
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackType, setFeedbackType] = useState("issue");
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackSent, setFeedbackSent] = useState(false);
-  const [savedGrants, setSavedGrants] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("sos_grants")||"[]"); } catch(e) { return []; }
-  });
+  const [savedGrants, setSavedGrants] = useState(()=>{ try{return JSON.parse(localStorage.getItem("sos_grants")||"[]");}catch(e){return[];} });
   const [showSaved, setShowSaved] = useState(false);
 
-  const apiKey = customApiKey || window.ANTHROPIC_API_KEY || "";
-
-  // ── SAVE current grant session ──
   const saveCurrentGrant = async () => {
-    if (!grantName.trim()) { alert("Please enter a grant name before saving."); return; }
-    const session = {
-      id: Date.now(),
-      savedAt: new Date().toLocaleDateString(),
-      grantName, projectDesc, matchSource, nofoText,
-      nofoAnalysis, drafts, complianceResults, tracker
-    };
-    // Save to localStorage (always works)
+    if (!grantName.trim()) { alert("Please enter a grant name first."); return; }
+    const session = { id:Date.now(), savedAt:new Date().toLocaleDateString(), grantName, projectDesc, matchSource, nofoText, nofoAnalysis, drafts, complianceResults, tracker };
     const existing = JSON.parse(localStorage.getItem("sos_grants")||"[]");
-    const idx = existing.findIndex(g => g.grantName === grantName);
-    if (idx >= 0) { existing[idx] = session; } else { existing.unshift(session); }
-    localStorage.setItem("sos_grants", JSON.stringify(existing.slice(0,20)));
+    const idx2 = existing.findIndex(g=>g.grantName===grantName);
+    if(idx2>=0){existing[idx2]=session;}else{existing.unshift(session);}
+    localStorage.setItem("sos_grants",JSON.stringify(existing.slice(0,20)));
     setSavedGrants(existing.slice(0,20));
-    // Also save to Supabase cloud if user is logged in
-    // Try multiple ways to get email from session
-    const session = JSON.parse(localStorage.getItem("sos_session")||"{}");
-    const userEmail = session?.email || user?.email || user?.id || null;
-    const grantData = { projectDesc, matchSource, nofoText, nofoAnalysis, drafts, complianceResults, tracker };
-    const cloudSaved = await cloudSaveGrant(userEmail, grantName, grantData);
-    if (cloudSaved) {
-      alert("Grant saved! ✓ Backed up to cloud — access from any device.");
-    } else {
-      alert("Grant saved to this browser. Sign in with email to enable cloud backup.");
-    }
+    const sess = JSON.parse(localStorage.getItem("sos_session")||"{}");
+    const email = sess?.email||user?.email||null;
+    const grantData = {projectDesc,matchSource,nofoText,nofoAnalysis,drafts,complianceResults,tracker};
+    const ok = await cloudSave(email, grantName, grantData);
+    alert(ok ? "Grant saved! Cloud backup confirmed." : "Grant saved to this browser.");
   };
 
-  // ── LOAD saved grant ──
-  const loadGrant = (session) => {
-    setGrantName(session.grantName||"");
-    setProjectDesc(session.projectDesc||"");
-    setMatchSource(session.matchSource||"");
-    setNofoText(session.nofoText||"");
-    setNofoAnalysis(session.nofoAnalysis||null);
-    setDrafts(session.drafts||{});
-    setComplianceResults(session.complianceResults||null);
-    setTracker(session.tracker||{ conditions:[], purchases:[], timeEntries:[] });
-    setPhase(session.nofoAnalysis ? 1 : 0);
-    setShowSaved(false);
-    alert("✓ Grant loaded: " + session.grantName);
+  const loadGrant = (s) => {
+    setGrantName(s.grantName||""); setProjectDesc(s.projectDesc||""); setMatchSource(s.matchSource||"");
+    setNofoText(s.nofoText||""); setNofoAnalysis(s.nofoAnalysis||null); setDrafts(s.drafts||{});
+    setComplianceResults(s.complianceResults||null);
+    setTracker(s.tracker||{conditions:[],purchases:[],timeEntries:[]});
+    setPhase(s.nofoAnalysis?1:0); setShowSaved(false);
+    alert("Grant loaded: "+s.grantName);
   };
 
-  // ── LOAD grants from cloud on mount ──
-  const loadCloudGrants = useCallback(async () => {
-    // Try multiple ways to get email from session
-    const session = JSON.parse(localStorage.getItem("sos_session")||"{}");
-    const userEmail = session?.email || user?.email || user?.id || null;
-    if (!userEmail) return;
-    const cloudGrants = await cloudLoadGrants(userEmail);
-    if (cloudGrants.length > 0) {
-      const local = JSON.parse(localStorage.getItem("sos_grants")||"[]");
-      // Merge cloud and local, preferring cloud versions
-      const merged = [...cloudGrants];
-      local.forEach(lg => {
-        if (!merged.find(cg => cg.grantName === lg.grantName)) merged.push(lg);
-      });
-      const deduped = merged.slice(0,20);
-      localStorage.setItem("sos_grants", JSON.stringify(deduped));
-      setSavedGrants(deduped);
-    }
-  }, [user]);
-
-  React.useEffect(() => { loadCloudGrants(); }, [loadCloudGrants]);
-
-  // ── DELETE saved grant ──
   const deleteGrant = async (id) => {
-    const updated = savedGrants.filter(g => g.id !== id);
-    localStorage.setItem("sos_grants", JSON.stringify(updated));
+    const updated = savedGrants.filter(g=>g.id!==id);
+    localStorage.setItem("sos_grants",JSON.stringify(updated));
     setSavedGrants(updated);
-    await cloudDeleteGrant(id);
+    await cloudDelete(id);
   };
 
-  // ── SEND feedback ──
   const sendFeedback = () => {
-    if (!feedbackText.trim()) return;
-    const subject = feedbackType === "issue" ? "SovereignOS Issue Report" : feedbackType === "feature" ? "SovereignOS Feature Request" : "SovereignOS Question";
-    const body = encodeURIComponent(`Type: ${feedbackType}\n\nMessage:\n${feedbackText}\n\nUser: ${user?.tribe || "Unknown"}\nDate: ${new Date().toLocaleDateString()}`);
-    window.open(`mailto:support@magpiestrategies.com?subject=${encodeURIComponent(subject)}&body=${body}`);
+    if(!feedbackText.trim()) return;
+    const subj = feedbackType==="issue"?"SovereignOS Issue":feedbackType==="feature"?"SovereignOS Feature Request":"SovereignOS Question";
+    const body2 = encodeURIComponent("Type: "+feedbackType+" | Message: "+feedbackText+" | Tribe: "+(user?.tribe||"Unknown"));
+    window.open("mailto:support@magpiestrategies.com?subject="+encodeURIComponent(subj)+"&body="+body2);
     setFeedbackSent(true);
-    setTimeout(() => { setShowFeedback(false); setFeedbackText(""); setFeedbackSent(false); }, 2000);
+    setTimeout(()=>{setShowFeedback(false);setFeedbackText("");setFeedbackSent(false);},2000);
   };
+
+  React.useEffect(()=>{
+    const sess=JSON.parse(localStorage.getItem("sos_session")||"{}");
+    const email=sess?.email||null;
+    if(!email) return;
+    cloudLoad(email).then(cloud=>{
+      if(cloud.length>0){
+        const local=JSON.parse(localStorage.getItem("sos_grants")||"[]");
+        const merged=[...cloud];
+        local.forEach(l=>{if(!merged.find(c=>c.grantName===l.grantName))merged.push(l);});
+        const final=merged.slice(0,20);
+        localStorage.setItem("sos_grants",JSON.stringify(final));
+        setSavedGrants(final);
+      }
+    });
+  },[]);
+  const [showApiInput, setShowApiInput] = useState(false);
+
+  const apiKey = customApiKey || window.ANTHROPIC_API_KEY || "";
 
   const callAI = useCallback(async (messages, system, maxTokens=4000) => {
     if (!apiKey) { setApiKeyMissing(true); setShowApiInput(true); throw new Error("NO_API_KEY"); }
@@ -843,29 +800,37 @@ Write at federal grant professional level. Be specific, not generic.` }],
   const runCompliance = async () => {
     setLoading(true); setLoadingMsg("Running compliance analysis...");
     try {
-      const draftSummary = Object.entries(drafts).map(([k,v])=>k+": "+v.slice(0,300)).join(" | ").slice(0,2000);
-      const nofoKey = nofoAnalysis ? `${nofoAnalysis.program}|TERO:${nofoAnalysis.teroApplicable}|DB:${nofoAnalysis.davisBaconApplicable}|NEPA:${nofoAnalysis.nepaRequired}|Match:${nofoAnalysis.match}` : "Unknown grant";
-      const prompt = `Tribal grant compliance check. PROGRAM: ${nofoKey}. TRIBE: ${user.tribe}. PROJECT: ${projectDesc.slice(0,200)}. DRAFT: ${draftSummary}.
+      const draftContent = Object.entries(drafts).map(([k,v])=>`## ${k}\n${v}`).join("\n\n");
+      const result = await callAI(
+        [{ role:"user", content:`Run a compliance check on this grant application.
+NOFO: ${JSON.stringify(nofoAnalysis)}
+TRIBE: ${user.tribe} | PROJECT: ${projectDesc}
+DRAFT: ${draftContent || "Draft not yet generated"}
 
-Return ONLY this JSON (keep all string values under 80 chars):
-{"overallScore":75,"overallStatus":"Review needed","checks":[{"category":"2 CFR 200 Compliance","pass":true,"finding":"Budget follows uniform guidance","detail":"Direct costs properly categorized","action":null},{"category":"TERO Requirements","pass":true,"finding":"Tribal preference included","detail":"TERO language present in narrative","action":null},{"category":"Davis-Bacon Act","pass":false,"finding":"Wage rates not specified","detail":"Construction projects require prevailing wages","action":"Add Davis-Bacon wage determination"},{"category":"NEPA Review","pass":true,"finding":"Environmental review addressed","detail":"NEPA compliance noted","action":null},{"category":"Match Documentation","pass":true,"finding":"Match source identified","detail":"TTP funds documented as match","action":null},{"category":"Tribal Eligibility","pass":true,"finding":"Eligibility confirmed","detail":"Federally recognized tribe documented","action":null}],"criticalFlags":[],"missingDocuments":["Tribal Council Resolution","Letters of Support","SF-424"],"recommendations":["Verify Davis-Bacon wage rates","Confirm TERO officer contact","Attach all required forms"]}`;
-      const result = await callAI([{ role:"user", content:prompt }],
-        "Federal grants compliance auditor for tribal programs. Return ONLY compact valid JSON. All string values under 80 characters. No markdown fences.",
-        6000
+Return ONLY valid JSON:
+{
+  "overallScore":85,
+  "overallStatus":"status description",
+  "checks":[{
+    "category":"category name","pass":true,
+    "finding":"what was found","detail":"more detail","action":"required action or null"
+  }],
+  "criticalFlags":["flag"],"missingDocuments":["doc"],"recommendations":["rec"]
+}` }],
+        "You are a federal grants compliance auditor specializing in tribal programs, 2 CFR 200, Davis-Bacon, TERO, and NEPA. Be thorough and specific. Return only valid JSON."
       );
-      const cleaned = result.replace(/```json|```/g,"").trim();
-      const s = cleaned.indexOf("{");
-      const e2 = cleaned.lastIndexOf("}");
-      if(s===-1||e2===-1) throw new Error("Response did not contain valid JSON. Please try again.");
-      setComplianceResults(JSON.parse(cleaned.slice(s,e2+1)));
+      const cleaned2 = result.replace(/```json|```/g,"").trim();
+      const s2 = cleaned2.indexOf("{"); const e3 = cleaned2.lastIndexOf("}");
+      if(s2===-1||e3===-1) throw new Error("Try again");
+      setComplianceResults(JSON.parse(cleaned2.slice(s2,e3+1)));
       setPhase(3);
     } catch(e) {
-      if (e.message !== "NO_API_KEY") alert("Compliance check error: " + e.message + "\n\nPlease click Run Compliance Check again.");
+      if (e.message !== "NO_API_KEY") alert("Error: " + e.message);
     }
     setLoading(false); setLoadingMsg("");
   };
 
-    // ── Tracker helpers ──
+  // ── Tracker helpers ──
   const addCondition = () => {
     if (!newCondition.trim()) return;
     setTracker(p=>({ ...p, conditions:[...p.conditions, { text:newCondition, status:"Pending", date:new Date().toLocaleDateString() }] }));
@@ -891,58 +856,50 @@ Return ONLY this JSON (keep all string values under 80 chars):
 
   return (
     <div style={{ minHeight:"100vh", background:C.navyDark, display:"flex", flexDirection:"column" }}>
-      <AppHeader user={user} onLogout={()=>{ localStorage.removeItem("sos_session"); window.location.reload(); }} currentGrant={grantName} loading={loading} loadingMsg={loadingMsg}/>
 
-      {/* ── ONBOARDING MODAL ── */}
       {showOnboarding && (
-        <div style={{ position:"fixed", inset:0, background:"#000000CC", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-          <div style={{ background:C.navy, border:`2px solid ${C.gold}`, borderRadius:12, maxWidth:560, width:"100%", padding:36 }}>
-            <div style={{ fontSize:28, fontWeight:"bold", color:C.white, marginBottom:8 }}>Welcome to SovereignOS™</div>
-            <div style={{ fontSize:13, color:C.gold, fontFamily:"monospace", marginBottom:24 }}>The Operating System for Tribal Grants & Compliance</div>
-            {[
-              { step:"1", title:"Set Up Your API Key", desc:"Click the API Key button in the top right. Get a free key at console.anthropic.com. Add $20 in credits to start.", icon:"🔑" },
-              { step:"2", title:"Paste Your NOFO", desc:"Go to Tab 1 — NOFO & Setup. Enter your grant name, project description, and paste the full NOFO text. Click Analyze.", icon:"📋" },
-              { step:"3", title:"Generate Your Draft", desc:"Go to Tab 2 — Draft Grant. Click each section to generate AI-written content tailored to your tribe and NOFO.", icon:"✍️" },
-              { step:"4", title:"Save Your Work", desc:"Click Save Grant anytime to save your progress. Come back and load it from Saved Grants.", icon:"💾" },
-            ].map(s => (
-              <div key={s.step} style={{ display:"flex", gap:16, marginBottom:16, alignItems:"flex-start" }}>
-                <div style={{ fontSize:24, flexShrink:0 }}>{s.icon}</div>
-                <div>
-                  <div style={{ fontSize:13, fontWeight:"bold", color:C.white, fontFamily:"monospace", marginBottom:3 }}>Step {s.step}: {s.title}</div>
-                  <div style={{ fontSize:12, color:"#AAAAAA", lineHeight:1.6 }}>{s.desc}</div>
-                </div>
-              </div>
-            ))}
-            <div style={{ marginTop:8, padding:"12px 16px", background:`${C.gold}15`, border:`1px solid ${C.gold}30`, borderRadius:6, fontSize:12, color:C.gold, fontFamily:"monospace", marginBottom:24 }}>
-              💡 TIP: SovereignOS works best with complete NOFO text. The more detail you provide, the stronger your grant draft.
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px"}}>
+          <div style={{background:C.navy,border:"2px solid "+C.gold,borderRadius:"12px",maxWidth:"520px",width:"100%",padding:"32px"}}>
+            <div style={{fontSize:"24px",fontWeight:"bold",color:C.white,marginBottom:"6px"}}>Welcome to SovereignOS</div>
+            <div style={{fontSize:"12px",color:C.gold,fontFamily:"monospace",marginBottom:"20px"}}>The Operating System for Tribal Grants and Compliance</div>
+            <div style={{marginBottom:"12px"}}>
+              <div style={{fontWeight:"bold",color:C.white,fontSize:"12px"}}>Step 1: Set Up Your API Key</div>
+              <div style={{fontSize:"11px",color:"#AAAAAA"}}>Look for the yellow banner. Get your key at console.anthropic.com and add $20 in credits.</div>
             </div>
-            <button style={{ ...btn("gold"), width:"100%", justifyContent:"center", fontSize:13, padding:"14px" }} onClick={() => { setShowOnboarding(false); localStorage.setItem("sos_onboarded","1"); }}>
-              Get Started →
-            </button>
-            <div style={{ textAlign:"center", marginTop:12, fontSize:11, color:"#666", fontFamily:"monospace", cursor:"pointer" }} onClick={() => { setShowOnboarding(false); localStorage.setItem("sos_onboarded","1"); }}>
-              Skip — I know what I'm doing
+            <div style={{marginBottom:"12px"}}>
+              <div style={{fontWeight:"bold",color:C.white,fontSize:"12px"}}>Step 2: Paste Your NOFO</div>
+              <div style={{fontSize:"11px",color:"#AAAAAA"}}>Go to Tab 1. Enter grant name, project description, paste NOFO text, click Analyze.</div>
             </div>
+            <div style={{marginBottom:"12px"}}>
+              <div style={{fontWeight:"bold",color:C.white,fontSize:"12px"}}>Step 3: Generate Your Draft</div>
+              <div style={{fontSize:"11px",color:"#AAAAAA"}}>Go to Tab 2. Click each section to generate AI-written content for your tribe.</div>
+            </div>
+            <div style={{marginBottom:"20px"}}>
+              <div style={{fontWeight:"bold",color:C.white,fontSize:"12px"}}>Step 4: Save Your Work</div>
+              <div style={{fontSize:"11px",color:"#AAAAAA"}}>Click Save Grant anytime. Come back and load it from Saved Grants.</div>
+            </div>
+            <button style={{background:C.gold,color:C.navy,border:"none",borderRadius:"4px",padding:"12px 24px",fontSize:"13px",fontWeight:"bold",cursor:"pointer",width:"100%"}} onClick={()=>{setShowOnboarding(false);localStorage.setItem("sos_onboarded","1");}}>Get Started</button>
+            <div style={{textAlign:"center",marginTop:"10px",fontSize:"11px",color:"#666",cursor:"pointer"}} onClick={()=>{setShowOnboarding(false);localStorage.setItem("sos_onboarded","1");}}>Skip - I know what I am doing</div>
           </div>
         </div>
       )}
 
-      {/* ── SAVED GRANTS PANEL ── */}
       {showSaved && (
-        <div style={{ position:"fixed", inset:0, background:"#000000CC", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-          <div style={{ background:C.navy, border:`1px solid ${C.gold}50`, borderRadius:10, maxWidth:600, width:"100%", padding:28, maxHeight:"80vh", overflowY:"auto" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-              <div style={{ fontSize:16, fontWeight:"bold", color:C.white }}>Saved Grants</div>
-              <button style={{ ...btn("outline",true) }} onClick={() => setShowSaved(false)}>✕ Close</button>
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px"}}>
+          <div style={{background:C.navy,border:"1px solid "+C.gold,borderRadius:"10px",maxWidth:"560px",width:"100%",padding:"24px",maxHeight:"80vh",overflowY:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}}>
+              <div style={{fontSize:"15px",fontWeight:"bold",color:C.white}}>Saved Grants</div>
+              <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 12px",cursor:"pointer",fontSize:"10px"}} onClick={()=>setShowSaved(false)}>X Close</button>
             </div>
-            {savedGrants.length === 0 ? (
-              <div style={{ textAlign:"center", color:"#666", fontFamily:"monospace", fontSize:12, padding:40 }}>No saved grants yet. Work on a grant and click Save Grant to store your progress.</div>
-            ) : savedGrants.map(g => (
-              <div key={g.id} style={{ background:C.navyDark, border:`1px solid ${C.gold}25`, borderRadius:6, padding:16, marginBottom:10 }}>
-                <div style={{ fontSize:14, fontWeight:"bold", color:C.white, marginBottom:4 }}>{g.grantName}</div>
-                <div style={{ fontSize:11, color:"#888", fontFamily:"monospace", marginBottom:12 }}>Saved {g.savedAt} · {Object.keys(g.drafts||{}).length} sections drafted</div>
-                <div style={{ display:"flex", gap:8 }}>
-                  <button style={{ ...btn("gold",true), flex:1, justifyContent:"center" }} onClick={() => loadGrant(g)}>Load</button>
-                  <button style={{ ...btn("outline",true) }} onClick={() => { if(window.confirm("Delete this saved grant?")) deleteGrant(g.id); }}>Delete</button>
+            {savedGrants.length===0 ? (
+              <div style={{textAlign:"center",color:"#666",fontFamily:"monospace",fontSize:"12px",padding:"32px"}}>No saved grants yet. Click Save Grant to store your progress.</div>
+            ) : savedGrants.map(g=>(
+              <div key={g.id} style={{background:C.navyDark,border:"1px solid rgba(200,169,106,0.2)",borderRadius:"6px",padding:"14px",marginBottom:"8px"}}>
+                <div style={{fontSize:"13px",fontWeight:"bold",color:C.white,marginBottom:"3px"}}>{g.grantName}</div>
+                <div style={{fontSize:"11px",color:"#888",fontFamily:"monospace",marginBottom:"10px"}}>Saved {g.savedAt}</div>
+                <div style={{display:"flex",gap:"8px"}}>
+                  <button style={{background:C.gold,color:C.navy,border:"none",borderRadius:"4px",padding:"6px 16px",fontSize:"11px",fontWeight:"bold",cursor:"pointer",flex:1}} onClick={()=>loadGrant(g)}>Load</button>
+                  <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 12px",fontSize:"11px",cursor:"pointer"}} onClick={()=>{if(window.confirm("Delete?"))deleteGrant(g.id);}}>Delete</button>
                 </div>
               </div>
             ))}
@@ -950,45 +907,38 @@ Return ONLY this JSON (keep all string values under 80 chars):
         </div>
       )}
 
-      {/* ── FEEDBACK PANEL ── */}
       {showFeedback && (
-        <div style={{ position:"fixed", inset:0, background:"#000000CC", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-          <div style={{ background:C.navy, border:`1px solid ${C.gold}50`, borderRadius:10, maxWidth:480, width:"100%", padding:28 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-              <div style={{ fontSize:16, fontWeight:"bold", color:C.white }}>Send Feedback</div>
-              <button style={{ ...btn("outline",true) }} onClick={() => setShowFeedback(false)}>✕</button>
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px"}}>
+          <div style={{background:C.navy,border:"1px solid "+C.gold,borderRadius:"10px",maxWidth:"440px",width:"100%",padding:"24px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}}>
+              <div style={{fontSize:"15px",fontWeight:"bold",color:C.white}}>Send Feedback</div>
+              <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"4px 10px",cursor:"pointer",fontSize:"12px"}} onClick={()=>setShowFeedback(false)}>X</button>
             </div>
             {feedbackSent ? (
-              <div style={{ textAlign:"center", color:C.gold, fontFamily:"monospace", fontSize:13, padding:32 }}>✓ Thank you! We'll respond within 24 hours.</div>
-            ) : (
-              <>
-                <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-                  {[{v:"issue",label:"🐛 Report Issue"},{v:"feature",label:"💡 Request Feature"},{v:"question",label:"❓ Ask a Question"}].map(t => (
-                    <button key={t.v} style={{ ...btn(feedbackType===t.v?"gold":"outline",true), flex:1, justifyContent:"center", fontSize:10 }} onClick={() => setFeedbackType(t.v)}>{t.label}</button>
-                  ))}
-                </div>
-                <textarea
-                  style={{ width:"100%", minHeight:120, background:C.navyDark, border:`1px solid ${C.gold}40`, borderRadius:4, color:C.soft, fontSize:13, fontFamily:"monospace", padding:"10px 14px", resize:"vertical", outline:"none", marginBottom:12 }}
-                  value={feedbackText}
-                  onChange={e => setFeedbackText(e.target.value)}
-                  placeholder={feedbackType==="issue" ? "Describe what happened, what you were trying to do, and what you expected..." : feedbackType==="feature" ? "What would you like SovereignOS to be able to do?" : "What do you need help with?"}
-                />
-                <div style={{ fontSize:11, color:"#666", fontFamily:"monospace", marginBottom:12 }}>Sends to support@magpiestrategies.com · Response within 24 hours</div>
-                <button style={{ ...btn("gold"), width:"100%", justifyContent:"center" }} onClick={sendFeedback} disabled={!feedbackText.trim()}>Send Feedback</button>
-              </>
-            )}
+              <div style={{textAlign:"center",color:C.gold,fontFamily:"monospace",fontSize:"13px",padding:"28px"}}>Thank you! We will respond within 24 hours.</div>
+            ) : (<div>
+              <div style={{display:"flex",gap:"6px",marginBottom:"14px"}}>
+                {[{v:"issue",l:"Report Issue"},{v:"feature",l:"Request Feature"},{v:"question",l:"Ask Question"}].map(t=>(
+                  <button key={t.v} style={{background:feedbackType===t.v?C.gold:"transparent",color:feedbackType===t.v?C.navy:C.gold,border:"1px solid "+C.gold,borderRadius:"4px",padding:"6px 8px",fontSize:"10px",fontWeight:"bold",cursor:"pointer",flex:1}} onClick={()=>setFeedbackType(t.v)}>{t.l}</button>
+                ))}
+              </div>
+              <textarea style={{width:"100%",minHeight:"110px",background:C.navyDark,border:"1px solid rgba(200,169,106,0.4)",borderRadius:"4px",color:C.soft,fontSize:"12px",fontFamily:"monospace",padding:"10px 12px",resize:"vertical",outline:"none",marginBottom:"10px",boxSizing:"border-box"}} value={feedbackText} onChange={e=>setFeedbackText(e.target.value)} placeholder="Describe your issue, feature request, or question..."/>
+              <div style={{fontSize:"11px",color:"#666",fontFamily:"monospace",marginBottom:"10px"}}>Sends to support@magpiestrategies.com - Response within 24 hours</div>
+              <button style={{background:C.gold,color:C.navy,border:"none",borderRadius:"4px",padding:"12px",fontSize:"12px",fontWeight:"bold",cursor:"pointer",width:"100%",opacity:feedbackText.trim()?1:0.5}} onClick={sendFeedback} disabled={!feedbackText.trim()}>Send Feedback</button>
+            </div>)}
           </div>
         </div>
       )}
 
-      {/* ── SAVE/LOAD TOOLBAR ── */}
-      <div style={{ background:C.navy, borderBottom:`1px solid ${C.gold}15`, padding:"8px 28px", display:"flex", gap:10, alignItems:"center" }}>
-        <button style={{ ...btn("outline",true), fontSize:10 }} onClick={saveCurrentGrant}>💾 Save Grant</button>
-        <button style={{ ...btn("outline",true), fontSize:10 }} onClick={() => setShowSaved(true)}>📂 Saved Grants {savedGrants.length > 0 && `(${savedGrants.length})`}</button>
-        <div style={{ flex:1 }}/>
-        <button style={{ ...btn("outline",true), fontSize:10 }} onClick={() => setShowOnboarding(true)}>❓ How to Use</button>
-        <button style={{ ...btn("outline",true), fontSize:10 }} onClick={() => setShowFeedback(true)}>💬 Feedback</button>
+      <div style={{background:C.navy,borderBottom:"1px solid rgba(200,169,106,0.15)",padding:"8px 24px",display:"flex",gap:"10px",alignItems:"center"}}>
+        <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 14px",fontSize:"10px",fontWeight:"bold",fontFamily:"monospace",cursor:"pointer"}} onClick={saveCurrentGrant}>Save Grant</button>
+        <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 14px",fontSize:"10px",fontWeight:"bold",fontFamily:"monospace",cursor:"pointer"}} onClick={()=>setShowSaved(true)}>Saved Grants {savedGrants.length>0&&"("+savedGrants.length+")"}</button>
+        <div style={{flex:1}}/>
+        <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 14px",fontSize:"10px",fontWeight:"bold",fontFamily:"monospace",cursor:"pointer"}} onClick={()=>setShowOnboarding(true)}>How to Use</button>
+        <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 14px",fontSize:"10px",fontWeight:"bold",fontFamily:"monospace",cursor:"pointer"}} onClick={()=>setShowFeedback(true)}>Feedback</button>
       </div>
+
+      <AppHeader user={user} onLogout={()=>{ localStorage.removeItem("sos_session"); window.location.reload(); }} currentGrant={grantName} loading={loading} loadingMsg={loadingMsg}/>
 
       {/* API Key Banner */}
       {(apiKeyMissing || showApiInput) && (
