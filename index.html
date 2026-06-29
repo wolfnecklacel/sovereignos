@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SovereignOS™ — Tribal Grants & Compliance Platform</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; }
+  body { font-family: 'Georgia', serif; background: #061424; color: #F5F7FA; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #061424; }
+  ::-webkit-scrollbar-thumb { background: #C8A96A55; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #C8A96A; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse { 0%,80%,100% { opacity:.3; transform:scale(.8); } 40% { opacity:1; transform:scale(1); } }
+  @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  @keyframes glow { 0%,100% { box-shadow: 0 0 20px #C8A96A30; } 50% { box-shadow: 0 0 40px #C8A96A60; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .fade-in { animation: fadeIn 0.5s ease both; }
+  .gold-glow { animation: glow 3s ease-in-out infinite; }
+
+  input, textarea, select {
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  input:focus, textarea:focus, select:focus {
+    border-color: #C8A96A !important;
+    box-shadow: 0 0 0 3px #C8A96A20;
+  }
+  button { cursor: pointer; transition: opacity 0.15s, transform 0.1s; border: none; }
+  button:hover { opacity: 0.88; }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .nav-link { cursor: pointer; transition: color 0.2s; }
+  .nav-link:hover { color: #C8A96A !important; }
+
+  /* ── PRICING CARD HOVER ── */
+  .pricing-card { transition: transform 0.2s, box-shadow 0.2s; }
+  .pricing-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px #C8A96A20; }
+
+  /* ── TAB HOVER ── */
+  .phase-tab { transition: all 0.15s; }
+  .phase-tab:hover { opacity: 0.9; }
+
+  /* ── SECTION TAB ── */
+  .sec-tab { transition: all 0.15s; }
+  .sec-tab:hover { background: #C8A96A20 !important; }
+
+  /* ── COMPLIANCE ITEM ── */
+  .compliance-item { transition: background 0.2s; }
+
+  /* ── FEATURE ITEM ── */
+  .feature-item { transition: background 0.2s, border-color 0.2s; }
+  .feature-item:hover { background: #0B1F3A88 !important; border-color: #C8A96A50 !important; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ─────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────
+// SUPABASE
+const SUPA_URL = "https://sxosyyjozchfzupayiis.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4b3N5eWpvemNoZnp1cGF5aWlzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2MDA1MTgsImV4cCI6MjA5ODE3NjUxOH0.8HDYBfdxY7ziON2wlhzknBf-bK_fDlPmqn9g-sPA-H8";
+let sb = null;
+try { sb = window.supabase.createClient(SUPA_URL, SUPA_KEY); } catch(e) {}
+async function cloudSave(email, name, data) {
+  if (!sb||!email) return false;
+  try {
+    const {data:ex} = await sb.from('sos_grants').select('id').eq('user_email',email).eq('grant_name',name).maybeSingle();
+    if (ex) { const {error} = await sb.from('sos_grants').update({grant_data:data,updated_at:new Date().toISOString()}).eq('id',ex.id); return !error; }
+    else { const {error} = await sb.from('sos_grants').insert({user_email:email,grant_name:name,grant_data:data}); return !error; }
+  } catch(e) { return false; }
+}
+async function cloudLoad(email) {
+  if (!sb||!email) return [];
+  try {
+    const {data,error} = await sb.from('sos_grants').select('*').eq('user_email',email).order('updated_at',{ascending:false});
+    if (error||!data) return [];
+    return data.map(r=>({id:r.id,grantName:r.grant_name,savedAt:new Date(r.updated_at).toLocaleDateString(),...r.grant_data}));
+  } catch(e) { return []; }
+}
+async function cloudDelete(id) {
+  if (!sb) return false;
+  try { const {error} = await sb.from('sos_grants').delete().eq('id',id); return !error; } catch(e) { return false; }
+}
+const C = {
+  navy: "#0B1F3A", navyDark: "#061424", navyLight: "#122844",
+  gold: "#C8A96A", goldLight: "#D4B87A",
+  slate: "#2F3E4F", softWhite: "#F5F7FA", ltBlue: "#EEF2F7",
+  white: "#FFFFFF", red: "#C00000", amber: "#E26B0A",
+  green: "#375623", gray: "#888888", border: "#CCCCCC",
+  greenBg: "#37562320", redBg: "#C0000020", amberBg: "#E26B0A20",
+};
+
+// ─── PRICING TIERS ───────────────────────────
+const PLANS = [
+  {
+    name: "Starter",
+    price: "$97",
+    period: "/month",
+    desc: "For tribal programs managing 1–2 active grants",
+    color: C.slate,
+    features: [
+      "1 active grant at a time",
+      "NOFO Analyzer (5 per month)",
+      "AI Grant Draft Generator",
+      "Award Conditions Tracker",
+      "Evidence & Purchase Log",
+      "Time Log",
+      "Email support",
+    ],
+    cta: "Start Free Trial",
+    highlight: false,
+  },
+  {
+    name: "Professional",
+    price: "$297",
+    period: "/month",
+    desc: "For active grants programs with multiple awards",
+    color: C.gold,
+    features: [
+      "Unlimited active grants",
+      "Unlimited NOFO Analysis",
+      "Full AI Grant Draft Suite",
+      "Compliance Checker (vs federal regs)",
+      "All tracker modules",
+      "TERO Compliance Engine",
+      "Pre-Construction Compliance Check",
+      "Contractor Performance Scoring",
+      "Audit Readiness Dashboard",
+      "Priority email + phone support",
+    ],
+    cta: "Start Free Trial",
+    highlight: true,
+  },
+  {
+    name: "Enterprise",
+    price: "$997",
+    period: "/month",
+    desc: "For tribal consortiums and multi-program offices",
+    color: C.navyLight,
+    features: [
+      "Everything in Professional",
+      "Multi-tribe / multi-program",
+      "White-label option (your branding)",
+      "Custom compliance rule sets",
+      "Dedicated onboarding session",
+      "Staff training (up to 5 users)",
+      "Quarterly compliance review call",
+      "Custom reporting templates",
+      "SLA: 4-hour response time",
+    ],
+    cta: "Contact for Demo",
+    highlight: false,
+  },
+];
+
+// ─── SAMPLE NOFO ─────────────────────────────
+const SAMPLE_NOFO = `PROGRAM: RAISE (Rebuilding American Infrastructure with Sustainability and Equity)
+AGENCY: U.S. Department of Transportation / Federal Highway Administration
+CFDA NUMBER: 20.933
+MAX AWARD: $25,000,000 (Rural/Tribal applicants)
+MATCH REQUIREMENT: 20% non-federal match required
+ELIGIBILITY: Tribal governments, States, MPOs, local governments
+
+KEY PRIORITIES:
+- Safety improvements on transportation infrastructure
+- Economic competitiveness and job creation
+- Equity and access for underserved communities
+- Climate and sustainability impacts
+- Innovation in transportation design
+
+REQUIRED COMPONENTS:
+1. Project narrative (max 30 pages)
+2. Detailed project description with maps and diagrams
+3. Benefit-cost analysis or qualitative alternatives
+4. Letters of support from community stakeholders
+5. Tribal Council resolution authorizing application
+6. Detailed budget with narrative justification
+7. Project timeline with milestones
+8. Evidence of 20% non-federal match
+
+SCORING CRITERIA:
+- Merit criteria: Safety, Environmental Sustainability, Quality of Life (40%)
+- Project readiness: Environmental review, permits, design completion (30%)
+- Cost effectiveness and benefit-cost analysis (20%)
+- Applicant capacity and project management (10%)
+
+COMPLIANCE REQUIREMENTS:
+- Davis-Bacon Act applies to all construction contracts
+- TERO preferences must be documented for tribal applicants
+- NEPA environmental review required prior to construction
+- Buy America requirements apply to all materials
+- 2 CFR 200 Uniform Guidance governs all expenditures
+- Quarterly progress reporting required post-award`;
+
+const DRAFT_SECTIONS = [
+  "Project Narrative", "Statement of Need", "Goals & Objectives",
+  "Project Design", "Evaluation Plan", "Budget Narrative",
+  "Organizational Capacity", "Required Attachments Checklist",
+];
+
+// ─────────────────────────────────────────────
+// UTILITIES
+// ─────────────────────────────────────────────
+function LoadingDots() {
+  return (
+    <span style={{ display:"inline-flex", alignItems:"center", gap:3 }}>
+      {[0,1,2].map(i => (
+        <span key={i} style={{
+          display:"inline-block", width:6, height:6, borderRadius:"50%",
+          background: C.gold, animation:`pulse 1.4s ease-in-out infinite`,
+          animationDelay:`${i*0.2}s`,
+        }}/>
+      ))}
+    </span>
+  );
+}
+
+function Spinner() {
+  return <span style={{ display:"inline-block", width:16, height:16, border:`2px solid ${C.gold}40`, borderTopColor:C.gold, borderRadius:"50%", animation:"spin 0.8s linear infinite" }}/>;
+}
+
+function CopyBtn({ text }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(()=>setCopied(false),2000); }}
+      style={{ background:"transparent", border:`1px solid ${C.gold}50`, color:C.gold, borderRadius:3, padding:"4px 10px", fontSize:10, fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase" }}>
+      {copied ? "✓ Copied" : "Copy"}
+    </button>
+  );
+}
+
+async function callClaude(messages, system, maxTokens=2048) {
+  // ── REPLACE THIS WITH YOUR API KEY OR BACKEND PROXY ──
+  const API_KEY = window.ANTHROPIC_API_KEY || "";
+  if (!API_KEY) throw new Error("NO_API_KEY");
+  
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "x-api-key": API_KEY,
+      "anthropic-version":"2023-06-01",
+      "anthropic-dangerous-direct-browser-access":"true",
+    },
+    body: JSON.stringify({
+      model:"claude-sonnet-4-5",
+      max_tokens: maxTokens,
+      system,
+      messages,
+    }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.content[0].text;
+}
+
+// ─────────────────────────────────────────────
+// SHARED STYLE HELPERS
+// ─────────────────────────────────────────────
+const btn = (variant="gold", small=false) => ({
+  background: variant==="gold"?C.gold : variant==="red"?C.red : variant==="green"?C.green : variant==="outline"?"transparent" : C.slate,
+  color: variant==="gold"?C.navy : variant==="outline"?C.gold : C.white,
+  border: variant==="outline"?`1px solid ${C.gold}` : "none",
+  borderRadius:4, padding: small?"8px 16px":"12px 24px",
+  fontSize: small?11:12, fontWeight:"bold", letterSpacing:"0.08em",
+  textTransform:"uppercase", fontFamily:"monospace",
+  display:"inline-flex", alignItems:"center", gap:8,
+});
+
+const card = (extra={}) => ({
+  background: C.navy,
+  border:`1px solid ${C.gold}25`,
+  borderRadius:8, padding:28,
+  marginBottom:20,
+  ...extra,
+});
+
+const inp = (extra={}) => ({
+  width:"100%", background:C.navyDark,
+  border:`1px solid ${C.gold}45`, borderRadius:4,
+  color:C.softWhite, fontSize:13, fontFamily:"monospace",
+  padding:"10px 14px", ...extra,
+});
+
+const lbl = { fontSize:10, color:C.gold, letterSpacing:"0.08em",
+  fontWeight:"bold", fontFamily:"monospace", textTransform:"uppercase",
+  marginBottom:6, display:"block" };
+
+const divider = (extra={}) => (
+  <div style={{ height:1, background:`linear-gradient(to right, ${C.gold}, transparent)`, margin:"20px 0", ...extra }}/>
+);
+
+const tag = (color) => ({
+  display:"inline-block", padding:"2px 8px", borderRadius:2,
+  fontSize:9, fontWeight:"bold", letterSpacing:"0.08em",
+  fontFamily:"monospace", textTransform:"uppercase",
+  background:color, color:C.white,
+});
+
+// ─────────────────────────────────────────────
+// VIEWS
+// ─────────────────────────────────────────────
+
+// ── LANDING PAGE ─────────────────────────────
+function LandingPage({ onLogin, onSignup }) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  return (
+    <div style={{ minHeight:"100vh", background:`linear-gradient(160deg, ${C.navyDark} 0%, #0d2640 60%, ${C.navyDark} 100%)` }}>
+      
+      {/* NAV */}
+      <nav style={{ position:"sticky", top:0, zIndex:100, background:`${C.navyDark}f0`, backdropFilter:"blur(12px)", borderBottom:`1px solid ${C.gold}25`, padding:"0 40px", height:64, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <div style={{ fontSize:22, fontWeight:"bold", color:C.white, fontFamily:"Georgia, serif" }}>
+            Sovereign<span style={{ color:C.gold }}>OS</span><span style={{ fontSize:13 }}>™</span>
+          </div>
+          <span style={{ ...tag(C.gold), color:C.navy }}>BETA</span>
+        </div>
+        <div style={{ display:"flex", gap:24, alignItems:"center" }}>
+          {["Features","Pricing","About"].map(l => (
+            <span key={l} className="nav-link" style={{ color:C.gray, fontSize:13, fontFamily:"monospace" }}>{l}</span>
+          ))}
+          <button style={btn("outline",true)} onClick={onLogin}>Sign In</button>
+          <button style={btn("gold",true)} onClick={onSignup}>Get Started</button>
+        </div>
+      </nav>
+
+      {/* HERO */}
+      <section style={{ padding:"100px 40px 80px", maxWidth:1000, margin:"0 auto", textAlign:"center" }} className="fade-in">
+        <div style={{ display:"inline-block", background:`${C.gold}15`, border:`1px solid ${C.gold}40`, borderRadius:20, padding:"6px 16px", fontSize:11, fontFamily:"monospace", color:C.gold, letterSpacing:"0.08em", marginBottom:32, textTransform:"uppercase" }}>
+          Built for Tribal 638 Programs · Powered by AI
+        </div>
+        <h1 style={{ fontSize:56, fontWeight:"bold", color:C.white, lineHeight:1.1, marginBottom:24, fontFamily:"Georgia, serif" }}>
+          From NOFO to Closeout.<br/>
+          <span style={{ color:C.gold }}>Fully Compliant.</span>
+        </h1>
+        <p style={{ fontSize:18, color:C.gray, maxWidth:640, margin:"0 auto 40px", lineHeight:1.7, fontFamily:"monospace" }}>
+          SovereignOS™ is the first AI-powered grants management platform built exclusively for tribal governments. Write grants, check federal compliance, and track every dollar — all in one system.
+        </p>
+        <div style={{ display:"flex", gap:16, justifyContent:"center", flexWrap:"wrap" }}>
+          <button style={{ ...btn("gold"), padding:"16px 36px", fontSize:14 }} onClick={onSignup}>
+            Start Free 14-Day Trial →
+          </button>
+          <button style={{ ...btn("outline"), padding:"16px 36px", fontSize:14 }} onClick={onLogin}>
+            Sign In to Dashboard
+          </button>
+        </div>
+        <p style={{ fontSize:11, color:C.gray, fontFamily:"monospace", marginTop:16 }}>
+          No credit card required · Cancel anytime · Data stays yours
+        </p>
+      </section>
+
+      {/* STATS BAR */}
+      <div style={{ background:`${C.navy}80`, border:`1px solid ${C.gold}20`, borderLeft:"none", borderRight:"none", padding:"24px 40px" }}>
+        <div style={{ maxWidth:1000, margin:"0 auto", display:"flex", justifyContent:"space-around", flexWrap:"wrap", gap:24 }}>
+          {[
+            { num:"100%", label:"2 CFR 200 Aligned" },
+            { num:"3", label:"AI Engines Built In" },
+            { num:"638", label:"Program Optimized" },
+            { num:"FHWA", label:"RAISE Grant Ready" },
+          ].map(s => (
+            <div key={s.label} style={{ textAlign:"center" }}>
+              <div style={{ fontSize:28, fontWeight:"bold", color:C.gold, fontFamily:"monospace" }}>{s.num}</div>
+              <div style={{ fontSize:11, color:C.gray, fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase", marginTop:4 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* FEATURES */}
+      <section style={{ padding:"80px 40px", maxWidth:1000, margin:"0 auto" }}>
+        <div style={{ textAlign:"center", marginBottom:60 }}>
+          <div style={{ fontSize:11, color:C.gold, fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:12 }}>Three Engines. One System.</div>
+          <h2 style={{ fontSize:36, fontWeight:"bold", color:C.white, fontFamily:"Georgia, serif" }}>Everything a tribal grants office needs</h2>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))", gap:20 }}>
+          {[
+            {
+              icon:"⬡", title:"AI Grant Writer",
+              desc:"Paste a NOFO. Get a complete application draft written to the scoring criteria, with compliance flags and [INSERT] markers for your tribal-specific data.",
+              items:["NOFO Analysis & Go/No-Go","Section-by-section draft generation","Scoring criteria alignment","Data gap identification"],
+            },
+            {
+              icon:"⬡", title:"Compliance Checker",
+              desc:"Before you submit, run your draft against 2 CFR 200, agency-specific rules, Davis-Bacon, TERO, and NEPA requirements. Get a compliance score and action list.",
+              items:["2 CFR 200 / Uniform Guidance","Davis-Bacon verification","TERO documentation check","NEPA & permit compliance"],
+            },
+            {
+              icon:"⬡", title:"Execution Tracker",
+              desc:"Once awarded, track every condition, purchase, hour, contractor, and permit from a single dashboard. Built for audit defense from day one.",
+              items:["Award Conditions Tracker","Evidence Master Log","Time & Personnel Tracking","Contractor Performance Scoring","Pre-Construction Go/No-Go","Audit Readiness Score"],
+            },
+          ].map(f => (
+            <div key={f.title} className="feature-item" style={{ background:`${C.navy}80`, border:`1px solid ${C.gold}20`, borderRadius:8, padding:28 }}>
+              <div style={{ fontSize:24, marginBottom:12 }}>{f.icon}</div>
+              <h3 style={{ fontSize:18, fontWeight:"bold", color:C.white, marginBottom:10, fontFamily:"Georgia, serif" }}>{f.title}</h3>
+              <p style={{ fontSize:12, color:C.gray, fontFamily:"monospace", lineHeight:1.7, marginBottom:16 }}>{f.desc}</p>
+              {f.items.map(item => (
+                <div key={item} style={{ display:"flex", gap:8, marginBottom:6, fontSize:11, fontFamily:"monospace", color:C.softWhite }}>
+                  <span style={{ color:C.gold }}>✓</span>{item}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* PRICING */}
+      <section style={{ padding:"80px 40px", maxWidth:1000, margin:"0 auto" }} id="pricing">
+        <div style={{ textAlign:"center", marginBottom:60 }}>
+          <div style={{ fontSize:11, color:C.gold, fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:12 }}>Pricing</div>
+          <h2 style={{ fontSize:36, fontWeight:"bold", color:C.white, fontFamily:"Georgia, serif" }}>Simple. Transparent. Tribal-first.</h2>
+          <p style={{ fontSize:14, color:C.gray, fontFamily:"monospace", marginTop:12 }}>All plans include a 14-day free trial. No credit card required to start.</p>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))", gap:20 }}>
+          {PLANS.map(plan => (
+            <div key={plan.name} className="pricing-card" style={{
+              background: plan.highlight ? `linear-gradient(135deg, ${C.navy}, ${C.navyLight})` : C.navy,
+              border: plan.highlight ? `2px solid ${C.gold}` : `1px solid ${C.gold}25`,
+              borderRadius:8, padding:32, position:"relative",
+            }}>
+              {plan.highlight && (
+                <div style={{ position:"absolute", top:-12, left:"50%", transform:"translateX(-50%)", background:C.gold, color:C.navy, fontSize:10, fontWeight:"bold", fontFamily:"monospace", letterSpacing:"0.08em", padding:"4px 16px", borderRadius:20, textTransform:"uppercase" }}>
+                  Most Popular
+                </div>
+              )}
+              <div style={{ fontSize:11, color:plan.highlight?C.gold:C.gray, fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>{plan.name}</div>
+              <div style={{ display:"flex", alignItems:"baseline", gap:4, marginBottom:8 }}>
+                <span style={{ fontSize:42, fontWeight:"bold", color:C.white, fontFamily:"monospace" }}>{plan.price}</span>
+                <span style={{ fontSize:13, color:C.gray, fontFamily:"monospace" }}>{plan.period}</span>
+              </div>
+              <p style={{ fontSize:12, color:C.gray, fontFamily:"monospace", lineHeight:1.6, marginBottom:24 }}>{plan.desc}</p>
+              {divider()}
+              {plan.features.map(f => (
+                <div key={f} style={{ display:"flex", gap:10, marginBottom:10, fontSize:12, fontFamily:"monospace", color:C.softWhite }}>
+                  <span style={{ color:C.gold, flexShrink:0 }}>✓</span>{f}
+                </div>
+              ))}
+              <button style={{ ...btn(plan.highlight?"gold":"outline"), width:"100%", marginTop:24, justifyContent:"center" }} onClick={onSignup}>
+                {plan.cta}
+              </button>
+            </div>
+          ))}
+        </div>
+        <p style={{ textAlign:"center", fontSize:12, color:C.gray, fontFamily:"monospace", marginTop:32 }}>
+          Questions? Contact us at hello@sovereignos.com · Tribal government discounts available
+        </p>
+      </section>
+
+      {/* CTA BANNER */}
+      <section style={{ background:`linear-gradient(135deg, ${C.navy}, ${C.navyLight})`, border:`1px solid ${C.gold}30`, borderLeft:"none", borderRight:"none", padding:"60px 40px", textAlign:"center" }}>
+        <h2 style={{ fontSize:32, fontWeight:"bold", color:C.white, marginBottom:16, fontFamily:"Georgia, serif" }}>
+          Your next audit starts today.
+        </h2>
+        <p style={{ fontSize:14, color:C.gray, fontFamily:"monospace", marginBottom:32, maxWidth:500, margin:"0 auto 32px" }}>
+          Every day without a documentation system is a day of audit risk. Start your free trial and have your first grant set up in under an hour.
+        </p>
+        <button style={{ ...btn("gold"), padding:"16px 40px", fontSize:14 }} onClick={onSignup}>
+          Start Free — No Card Required →
+        </button>
+      </section>
+
+      {/* FOOTER */}
+      <footer style={{ background:C.navyDark, borderTop:`1px solid ${C.gold}20`, padding:"32px 40px", textAlign:"center" }}>
+        <div style={{ fontSize:18, fontWeight:"bold", color:C.white, fontFamily:"Georgia, serif", marginBottom:8 }}>
+          Sovereign<span style={{ color:C.gold }}>OS</span>™
+        </div>
+        <p style={{ fontSize:11, color:C.gray, fontFamily:"monospace" }}>
+          Built for Tribal 638 Programs · From NOFO to Closeout · Fully Compliant · Always Audit-Ready
+        </p>
+        <p style={{ fontSize:10, color:"#555", fontFamily:"monospace", marginTop:12 }}>
+          © 2025 SovereignOS™ · All rights reserved · hello@sovereignos.com
+        </p>
+      </footer>
+    </div>
+  );
+}
+
+// ── AUTH PAGE ─────────────────────────────────
+function AuthPage({ mode, onAuth, onSwitch }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [tribe, setTribe] = useState("");
+  const [plan, setPlan] = useState("Professional");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async () => {
+    if (!email || !password) { setError("Email and password are required."); return; }
+    if (mode === "signup" && !tribe) { setError("Tribe name is required."); return; }
+    setLoading(true); setError("");
+    await new Promise(r => setTimeout(r, 800)); // simulate network
+    // ── REPLACE WITH REAL AUTH (Supabase, Firebase, etc.) ──
+    const users = JSON.parse(localStorage.getItem("sos_users") || "{}");
+    if (mode === "signup") {
+      if (users[email]) { setError("Account already exists. Sign in instead."); setLoading(false); return; }
+      users[email] = { password, tribe, plan, created: new Date().toISOString() };
+      localStorage.setItem("sos_users", JSON.stringify(users));
+    } else {
+      if (!users[email] || users[email].password !== password) {
+        setError("Invalid email or password."); setLoading(false); return;
+      }
+    }
+    const userData = mode === "signup" ? { email, tribe, plan } : { email, ...users[email] };
+    localStorage.setItem("sos_session", JSON.stringify(userData));
+    onAuth(userData);
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:`linear-gradient(160deg, ${C.navyDark}, #0d2640)`, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div className="fade-in" style={{ width:"100%", maxWidth:440 }}>
+        <div style={{ textAlign:"center", marginBottom:40 }}>
+          <div style={{ fontSize:28, fontWeight:"bold", color:C.white, fontFamily:"Georgia, serif" }}>
+            Sovereign<span style={{ color:C.gold }}>OS</span>™
+          </div>
+          <div style={{ fontSize:11, color:C.gray, fontFamily:"monospace", marginTop:6, letterSpacing:"0.06em" }}>
+            {mode === "signup" ? "CREATE YOUR ACCOUNT" : "SIGN IN TO YOUR DASHBOARD"}
+          </div>
+        </div>
+
+        <div style={{ background:C.navy, border:`1px solid ${C.gold}25`, borderRadius:8, padding:36 }}>
+          {error && (
+            <div style={{ background:`${C.red}15`, border:`1px solid ${C.red}50`, borderRadius:4, padding:"10px 14px", fontSize:12, fontFamily:"monospace", color:"#ff6666", marginBottom:20 }}>
+              {error}
+            </div>
+          )}
+
+          {mode === "signup" && (
+            <div style={{ marginBottom:16 }}>
+              <label style={lbl}>Tribe / Organization Name</label>
+              <input style={inp()} value={tribe} onChange={e=>setTribe(e.target.value)} placeholder="e.g. [Your Tribe] Nation" />
+            </div>
+          )}
+
+          <div style={{ marginBottom:16 }}>
+            <label style={lbl}>Email Address</label>
+            <input style={inp()} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@tribaloffice.gov" />
+          </div>
+
+          <div style={{ marginBottom:16 }}>
+            <label style={lbl}>Password</label>
+            <input style={inp()} type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••••••" />
+          </div>
+
+          {mode === "signup" && (
+            <div style={{ marginBottom:16 }}>
+              <label style={lbl}>Select Plan</label>
+              <select style={{ ...inp(), cursor:"pointer" }} value={plan} onChange={e=>setPlan(e.target.value)}>
+                {PLANS.map(p => <option key={p.name} value={p.name}>{p.name} — {p.price}/month</option>)}
+              </select>
+            </div>
+          )}
+
+          <button style={{ ...btn("gold"), width:"100%", justifyContent:"center", marginTop:8, padding:"14px" }} onClick={handleSubmit} disabled={loading}>
+            {loading ? <><Spinner/> {mode==="signup"?"Creating Account...":"Signing In..."}</> : mode==="signup" ? "Create Account & Start Trial →" : "Sign In →"}
+          </button>
+
+          {divider({ margin:"24px 0" })}
+
+          <div style={{ textAlign:"center", fontSize:12, fontFamily:"monospace", color:C.gray }}>
+            {mode==="signup" ? "Already have an account? " : "Don't have an account? "}
+            <span style={{ color:C.gold, cursor:"pointer", textDecoration:"underline" }} onClick={onSwitch}>
+              {mode==="signup" ? "Sign In" : "Start Free Trial"}
+            </span>
+          </div>
+
+          {mode === "signup" && (
+            <div style={{ marginTop:16, fontSize:10, color:C.gray, fontFamily:"monospace", textAlign:"center", lineHeight:1.6 }}>
+              14-day free trial · No credit card required · Cancel anytime<br/>
+              Your data is private and belongs to you.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── APP HEADER ────────────────────────────────
+function AppHeader({ user, onLogout, currentGrant, loading, loadingMsg }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  return (
+    <div style={{ position:"sticky", top:0, zIndex:100, background:`${C.navy}f5`, backdropFilter:"blur(12px)", borderBottom:`3px solid ${C.gold}`, padding:"0 28px", height:60, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+        <div style={{ fontSize:18, fontWeight:"bold", color:C.white, fontFamily:"Georgia, serif" }}>
+          Sovereign<span style={{ color:C.gold }}>OS</span>™
+        </div>
+        <span style={{ background:C.gold, color:C.navy, fontSize:9, fontWeight:"bold", padding:"2px 7px", borderRadius:2, fontFamily:"monospace", letterSpacing:"0.08em" }}>AI GRANT ENGINE</span>
+      </div>
+      <div style={{ display:"flex", alignItems:"center", gap:20 }}>
+        {loading && (
+          <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:11, color:C.gold, fontFamily:"monospace" }}>
+            <Spinner/> {loadingMsg}
+          </div>
+        )}
+        {currentGrant && !loading && (
+          <span style={{ fontSize:11, color:C.gray, fontFamily:"monospace" }}>{currentGrant}</span>
+        )}
+        <div style={{ position:"relative" }}>
+          <div onClick={()=>setMenuOpen(!menuOpen)} style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", padding:"6px 12px", borderRadius:4, border:`1px solid ${C.gold}25`, background:`${C.gold}10` }}>
+            <span style={{ fontSize:12, fontFamily:"monospace", color:C.softWhite }}>{user.tribe || user.email}</span>
+            <span style={{ color:C.gold, fontSize:10 }}>▾</span>
+          </div>
+          {menuOpen && (
+            <div style={{ position:"absolute", right:0, top:"calc(100% + 8px)", background:C.navyLight, border:`1px solid ${C.gold}30`, borderRadius:6, minWidth:180, overflow:"hidden", zIndex:200 }}>
+              <div style={{ padding:"10px 16px", fontSize:11, color:C.gray, fontFamily:"monospace", borderBottom:`1px solid ${C.gold}20` }}>{user.email}</div>
+              <div style={{ padding:"8px 0" }}>
+                {["Settings","Billing","Help"].map(item => (
+                  <div key={item} className="nav-link" style={{ padding:"8px 16px", fontSize:12, fontFamily:"monospace", color:C.softWhite, cursor:"pointer" }}>{item}</div>
+                ))}
+                <div onClick={onLogout} className="nav-link" style={{ padding:"8px 16px", fontSize:12, fontFamily:"monospace", color:C.red, cursor:"pointer" }}>Sign Out</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN APP ──────────────────────────────────
+function GrantApp({ user }) {
+  const [phase, setPhase] = useState(0);
+  const [nofoText, setNofoText] = useState("");
+  const [grantName, setGrantName] = useState("");
+  const [projectDesc, setProjectDesc] = useState("");
+  const [matchSource, setMatchSource] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState("");
+  const [nofoAnalysis, setNofoAnalysis] = useState(null);
+  const [drafts, setDrafts] = useState({});
+  const [activeTab, setActiveTab] = useState(DRAFT_SECTIONS[0]);
+  const [complianceResults, setComplianceResults] = useState(null);
+  const [apiKeyMissing, setApiKeyMissing] = useState(false);
+  const [tracker, setTracker] = useState({ conditions:[], purchases:[], timeEntries:[] });
+  const [newCondition, setNewCondition] = useState("");
+  const [newPurchase, setNewPurchase] = useState({ desc:"", amount:"", vendor:"", budget:"" });
+  const [newTime, setNewTime] = useState({ employee:"", hours:"", task:"", date:"" });
+  const [customApiKey, setCustomApiKey] = useState(localStorage.getItem("sos_apikey")||"");
+  const [showOnboarding, setShowOnboarding] = useState(!localStorage.getItem("sos_onboarded"));
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackType, setFeedbackType] = useState("issue");
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [savedGrants, setSavedGrants] = useState(()=>{ try{return JSON.parse(localStorage.getItem("sos_grants")||"[]");}catch(e){return[];} });
+  const [showSaved, setShowSaved] = useState(false);
+
+  const saveCurrentGrant = async () => {
+    if (!grantName.trim()) { alert("Please enter a grant name first."); return; }
+    const session = { id:Date.now(), savedAt:new Date().toLocaleDateString(), grantName, projectDesc, matchSource, nofoText, nofoAnalysis, drafts, complianceResults, tracker };
+    const existing = JSON.parse(localStorage.getItem("sos_grants")||"[]");
+    const idx2 = existing.findIndex(g=>g.grantName===grantName);
+    if(idx2>=0){existing[idx2]=session;}else{existing.unshift(session);}
+    localStorage.setItem("sos_grants",JSON.stringify(existing.slice(0,20)));
+    setSavedGrants(existing.slice(0,20));
+    const sess = JSON.parse(localStorage.getItem("sos_session")||"{}");
+    const email = sess?.email||user?.email||null;
+    const grantData = {projectDesc,matchSource,nofoText,nofoAnalysis,drafts,complianceResults,tracker};
+    const ok = await cloudSave(email, grantName, grantData);
+    alert(ok ? "Grant saved! Cloud backup confirmed." : "Grant saved to this browser.");
+  };
+
+  const loadGrant = (s) => {
+    setGrantName(s.grantName||""); setProjectDesc(s.projectDesc||""); setMatchSource(s.matchSource||"");
+    setNofoText(s.nofoText||""); setNofoAnalysis(s.nofoAnalysis||null); setDrafts(s.drafts||{});
+    setComplianceResults(s.complianceResults||null);
+    setTracker(s.tracker||{conditions:[],purchases:[],timeEntries:[]});
+    setPhase(s.nofoAnalysis?1:0); setShowSaved(false);
+    alert("Grant loaded: "+s.grantName);
+  };
+
+  const deleteGrant = async (id) => {
+    const updated = savedGrants.filter(g=>g.id!==id);
+    localStorage.setItem("sos_grants",JSON.stringify(updated));
+    setSavedGrants(updated);
+    await cloudDelete(id);
+  };
+
+  const sendFeedback = () => {
+    if(!feedbackText.trim()) return;
+    const subj = feedbackType==="issue"?"SovereignOS Issue":feedbackType==="feature"?"SovereignOS Feature Request":"SovereignOS Question";
+    const body2 = encodeURIComponent("Type: "+feedbackType+" | Message: "+feedbackText+" | Tribe: "+(user?.tribe||"Unknown"));
+    window.open("mailto:support@magpiestrategies.com?subject="+encodeURIComponent(subj)+"&body="+body2);
+    setFeedbackSent(true);
+    setTimeout(()=>{setShowFeedback(false);setFeedbackText("");setFeedbackSent(false);},2000);
+  };
+
+  React.useEffect(()=>{
+    const sess=JSON.parse(localStorage.getItem("sos_session")||"{}");
+    const email=sess?.email||null;
+    if(!email) return;
+    cloudLoad(email).then(cloud=>{
+      if(cloud.length>0){
+        const local=JSON.parse(localStorage.getItem("sos_grants")||"[]");
+        const merged=[...cloud];
+        local.forEach(l=>{if(!merged.find(c=>c.grantName===l.grantName))merged.push(l);});
+        const final=merged.slice(0,20);
+        localStorage.setItem("sos_grants",JSON.stringify(final));
+        setSavedGrants(final);
+      }
+    });
+  },[]);
+  const [showApiInput, setShowApiInput] = useState(false);
+
+  const apiKey = customApiKey || window.ANTHROPIC_API_KEY || "";
+
+  const callAI = useCallback(async (messages, system, maxTokens=4000) => {
+    const PROXY_URL = "https://sxosyyjozchfzupayiis.supabase.co/functions/v1/claude-proxy";
+    const res = await fetch(PROXY_URL, {
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4b3N5eWpvemNoZnp1cGF5aWlzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2MDA1MTgsImV4cCI6MjA5ODE3NjUxOH0.8HDYBfdxY7ziON2wlhzknBf-bK_fDlPmqn9g-sPA-H8",
+      },
+      body: JSON.stringify({ model:"claude-sonnet-4-5", max_tokens:maxTokens, system, messages }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    return data.content[0].text;
+  }, [apiKey]);
+
+  const saveKey = () => {
+    localStorage.setItem("sos_apikey", customApiKey);
+    setShowApiInput(false);
+    setApiKeyMissing(false);
+  };
+
+  // ── NOFO Analyze ──
+  const analyzeNOFO = async () => {
+    if (!nofoText.trim()) return;
+    setLoading(true); setLoadingMsg("Analyzing NOFO...");
+    try {
+      const result = await callAI(
+        [{ role:"user", content:`Analyze this NOFO. Return ONLY valid JSON, no markdown:
+{
+  "program":"","agency":"","maxAward":"","match":"","deadline":"","eligibility":"",
+  "keyPriorities":["",""],"scoringCriteria":[{"criterion":"","weight":""}],
+  "requiredComponents":[""],"complianceRequirements":[""],
+  "teroApplicable":true,"davisBaconApplicable":true,"nepaRequired":true,"cfr200Applies":true,
+  "goNoGo":{"eligibilityConfirmed":"","matchAchievable":"","capacityAdequate":"","recommendation":"PROCEED"}
+}
+NOFO: ${nofoText}` }],
+        "You are a federal grants compliance expert for tribal governments. Return only valid JSON."
+      );
+      setNofoAnalysis(JSON.parse(result.replace(/```json\n?|\n?```/g,"").trim()));
+      setPhase(1);
+    } catch(e) {
+      if (e.message !== "NO_API_KEY") alert("Error: " + e.message);
+    }
+    setLoading(false); setLoadingMsg("");
+  };
+
+  // ── Draft Section ──
+  const generateSection = async (section) => {
+    setLoading(true); setLoadingMsg(`Drafting ${section}...`);
+    try {
+      const result = await callAI(
+        [{ role:"user", content:`Write the "${section}" for a federal grant application.
+PROGRAM: ${nofoAnalysis?.program} | AGENCY: ${nofoAnalysis?.agency}
+TRIBE: ${user.tribe || "[Tribe Name]"} | GRANT: ${grantName}
+PROJECT: ${projectDesc} | MATCH: ${matchSource}
+PRIORITIES: ${nofoAnalysis?.keyPriorities?.join(", ")}
+SCORING: ${JSON.stringify(nofoAnalysis?.scoringCriteria)}
+COMPLIANCE: ${nofoAnalysis?.complianceRequirements?.join(", ")}
+
+Write a complete, professional, federally-compliant section. Address every relevant scoring criterion.
+Use tribal sovereignty language. Include TERO commitments where applicable.
+Flag missing data with [INSERT: specific data needed].
+Write at federal grant professional level. Be specific, not generic.` }],
+        "You are an expert federal grant writer specializing in tribal 638 programs and FHWA infrastructure grants. Write compelling, compliant, audit-defensible narratives that address scoring criteria directly.",
+        3000
+      );
+      setDrafts(prev => ({ ...prev, [section]:result }));
+      setActiveTab(section);
+    } catch(e) {
+      if (e.message !== "NO_API_KEY") alert("Error: " + e.message);
+    }
+    setLoading(false); setLoadingMsg("");
+  };
+
+  // ── Compliance Check ──
+  const runCompliance = async () => {
+    setLoading(true); setLoadingMsg("Running compliance analysis...");
+    try {
+      const draftContent = Object.entries(drafts).map(([k,v])=>`## ${k}\n${v}`).join("\n\n");
+      const result = await callAI(
+        [{ role:"user", content:`Run a compliance check on this grant application.
+NOFO: ${JSON.stringify(nofoAnalysis)}
+TRIBE: ${user.tribe} | PROJECT: ${projectDesc}
+DRAFT: ${draftContent || "Draft not yet generated"}
+
+Return ONLY valid JSON:
+{
+  "overallScore":85,
+  "overallStatus":"status description",
+  "checks":[{
+    "category":"category name","pass":true,
+    "finding":"what was found","detail":"more detail","action":"required action or null"
+  }],
+  "criticalFlags":["flag"],"missingDocuments":["doc"],"recommendations":["rec"]
+}` }],
+        "You are a federal grants compliance auditor specializing in tribal programs, 2 CFR 200, Davis-Bacon, TERO, and NEPA. Be thorough and specific. Return only valid JSON."
+      );
+      const cleaned2 = result.replace(/```json|```/g,"").trim();
+      const s2 = cleaned2.indexOf("{"); const e3 = cleaned2.lastIndexOf("}");
+      if(s2===-1||e3===-1) throw new Error("Try again");
+      let jsonStr = cleaned2.slice(s2,e3+1);
+      // Fix common JSON issues - truncated arrays, trailing commas
+      jsonStr = jsonStr.replace(/,\s*}/g,'}').replace(/,\s*]/g,']');
+      // If JSON is truncated mid-array, try to close it
+      try {
+        setComplianceResults(JSON.parse(jsonStr));
+      } catch(parseErr) {
+        // Try to salvage truncated JSON by closing open structures
+        let fixed = jsonStr;
+        const opens = (fixed.match(/{/g)||[]).length - (fixed.match(/}/g)||[]).length;
+        const openArr = (fixed.match(/\[/g)||[]).length - (fixed.match(/\]/g)||[]).length;
+        for(let i=0;i<openArr;i++) fixed += ']';
+        for(let i=0;i<opens;i++) fixed += '}';
+        fixed = fixed.replace(/,\s*}/g,'}').replace(/,\s*]/g,']');
+        setComplianceResults(JSON.parse(fixed));
+      }
+      setPhase(3);
+    } catch(e) {
+      if (e.message !== "NO_API_KEY") alert("Error: " + e.message);
+    }
+    setLoading(false); setLoadingMsg("");
+  };
+
+  // ── Tracker helpers ──
+  const addCondition = () => {
+    if (!newCondition.trim()) return;
+    setTracker(p=>({ ...p, conditions:[...p.conditions, { text:newCondition, status:"Pending", date:new Date().toLocaleDateString() }] }));
+    setNewCondition("");
+  };
+  const toggleCond = i => setTracker(p=>{ const c=[...p.conditions]; c[i]={...c[i],status:c[i].status==="Complete"?"Pending":"Complete"}; return {...p,conditions:c}; });
+  const addPurchase = () => {
+    if (!newPurchase.desc.trim()) return;
+    setTracker(p=>({ ...p, purchases:[...p.purchases, { ...newPurchase, date:new Date().toLocaleDateString() }] }));
+    setNewPurchase({ desc:"", amount:"", vendor:"", budget:"" });
+  };
+  const addTime = () => {
+    if (!newTime.employee.trim()) return;
+    setTracker(p=>({ ...p, timeEntries:[...p.timeEntries, { ...newTime, logged:new Date().toLocaleDateString() }] }));
+    setNewTime({ employee:"", hours:"", task:"", date:"" });
+  };
+
+  const totalHours = tracker.timeEntries.reduce((s,e)=>s+(parseFloat(e.hours)||0),0);
+  const totalSpend = tracker.purchases.reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
+  const completeConds = tracker.conditions.filter(c=>c.status==="Complete").length;
+
+  const PHASES = ["1. NOFO & Setup","2. Draft Grant","3. Compliance","4. Execution"];
+
+  return (
+    <div style={{ minHeight:"100vh", background:C.navyDark, display:"flex", flexDirection:"column" }}>
+
+      {showOnboarding && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px"}}>
+          <div style={{background:C.navy,border:"2px solid "+C.gold,borderRadius:"12px",maxWidth:"520px",width:"100%",padding:"32px"}}>
+            <div style={{fontSize:"24px",fontWeight:"bold",color:C.white,marginBottom:"6px"}}>Welcome to SovereignOS</div>
+            <div style={{fontSize:"12px",color:C.gold,fontFamily:"monospace",marginBottom:"20px"}}>The Operating System for Tribal Grants and Compliance</div>
+            <div style={{marginBottom:"12px"}}>
+              <div style={{fontWeight:"bold",color:C.white,fontSize:"12px"}}>Step 1: Set Up Your API Key</div>
+              <div style={{fontSize:"11px",color:"#AAAAAA"}}>Look for the yellow banner. Get your key at console.anthropic.com and add $20 in credits.</div>
+            </div>
+            <div style={{marginBottom:"12px"}}>
+              <div style={{fontWeight:"bold",color:C.white,fontSize:"12px"}}>Step 2: Paste Your NOFO</div>
+              <div style={{fontSize:"11px",color:"#AAAAAA"}}>Go to Tab 1. Enter grant name, project description, paste NOFO text, click Analyze.</div>
+            </div>
+            <div style={{marginBottom:"12px"}}>
+              <div style={{fontWeight:"bold",color:C.white,fontSize:"12px"}}>Step 3: Generate Your Draft</div>
+              <div style={{fontSize:"11px",color:"#AAAAAA"}}>Go to Tab 2. Click each section to generate AI-written content for your tribe.</div>
+            </div>
+            <div style={{marginBottom:"20px"}}>
+              <div style={{fontWeight:"bold",color:C.white,fontSize:"12px"}}>Step 4: Save Your Work</div>
+              <div style={{fontSize:"11px",color:"#AAAAAA"}}>Click Save Grant anytime. Come back and load it from Saved Grants.</div>
+            </div>
+            <button style={{background:C.gold,color:C.navy,border:"none",borderRadius:"4px",padding:"12px 24px",fontSize:"13px",fontWeight:"bold",cursor:"pointer",width:"100%"}} onClick={()=>{setShowOnboarding(false);localStorage.setItem("sos_onboarded","1");}}>Get Started</button>
+            <div style={{textAlign:"center",marginTop:"10px",fontSize:"11px",color:"#666",cursor:"pointer"}} onClick={()=>{setShowOnboarding(false);localStorage.setItem("sos_onboarded","1");}}>Skip - I know what I am doing</div>
+          </div>
+        </div>
+      )}
+
+      {showSaved && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px"}}>
+          <div style={{background:C.navy,border:"1px solid "+C.gold,borderRadius:"10px",maxWidth:"560px",width:"100%",padding:"24px",maxHeight:"80vh",overflowY:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}}>
+              <div style={{fontSize:"15px",fontWeight:"bold",color:C.white}}>Saved Grants</div>
+              <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 12px",cursor:"pointer",fontSize:"10px"}} onClick={()=>setShowSaved(false)}>X Close</button>
+            </div>
+            {savedGrants.length===0 ? (
+              <div style={{textAlign:"center",color:"#666",fontFamily:"monospace",fontSize:"12px",padding:"32px"}}>No saved grants yet. Click Save Grant to store your progress.</div>
+            ) : savedGrants.map(g=>(
+              <div key={g.id} style={{background:C.navyDark,border:"1px solid rgba(200,169,106,0.2)",borderRadius:"6px",padding:"14px",marginBottom:"8px"}}>
+                <div style={{fontSize:"13px",fontWeight:"bold",color:C.white,marginBottom:"3px"}}>{g.grantName}</div>
+                <div style={{fontSize:"11px",color:"#888",fontFamily:"monospace",marginBottom:"10px"}}>Saved {g.savedAt}</div>
+                <div style={{display:"flex",gap:"8px"}}>
+                  <button style={{background:C.gold,color:C.navy,border:"none",borderRadius:"4px",padding:"6px 16px",fontSize:"11px",fontWeight:"bold",cursor:"pointer",flex:1}} onClick={()=>loadGrant(g)}>Load</button>
+                  <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 12px",fontSize:"11px",cursor:"pointer"}} onClick={()=>{if(window.confirm("Delete?"))deleteGrant(g.id);}}>Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showFeedback && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px"}}>
+          <div style={{background:C.navy,border:"1px solid "+C.gold,borderRadius:"10px",maxWidth:"440px",width:"100%",padding:"24px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}}>
+              <div style={{fontSize:"15px",fontWeight:"bold",color:C.white}}>Send Feedback</div>
+              <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"4px 10px",cursor:"pointer",fontSize:"12px"}} onClick={()=>setShowFeedback(false)}>X</button>
+            </div>
+            {feedbackSent ? (
+              <div style={{textAlign:"center",color:C.gold,fontFamily:"monospace",fontSize:"13px",padding:"28px"}}>Thank you! We will respond within 24 hours.</div>
+            ) : (<div>
+              <div style={{display:"flex",gap:"6px",marginBottom:"14px"}}>
+                {[{v:"issue",l:"Report Issue"},{v:"feature",l:"Request Feature"},{v:"question",l:"Ask Question"}].map(t=>(
+                  <button key={t.v} style={{background:feedbackType===t.v?C.gold:"transparent",color:feedbackType===t.v?C.navy:C.gold,border:"1px solid "+C.gold,borderRadius:"4px",padding:"6px 8px",fontSize:"10px",fontWeight:"bold",cursor:"pointer",flex:1}} onClick={()=>setFeedbackType(t.v)}>{t.l}</button>
+                ))}
+              </div>
+              <textarea style={{width:"100%",minHeight:"110px",background:C.navyDark,border:"1px solid rgba(200,169,106,0.4)",borderRadius:"4px",color:C.soft,fontSize:"12px",fontFamily:"monospace",padding:"10px 12px",resize:"vertical",outline:"none",marginBottom:"10px",boxSizing:"border-box"}} value={feedbackText} onChange={e=>setFeedbackText(e.target.value)} placeholder="Describe your issue, feature request, or question..."/>
+              <div style={{fontSize:"11px",color:"#666",fontFamily:"monospace",marginBottom:"10px"}}>Sends to support@magpiestrategies.com - Response within 24 hours</div>
+              <button style={{background:C.gold,color:C.navy,border:"none",borderRadius:"4px",padding:"12px",fontSize:"12px",fontWeight:"bold",cursor:"pointer",width:"100%",opacity:feedbackText.trim()?1:0.5}} onClick={sendFeedback} disabled={!feedbackText.trim()}>Send Feedback</button>
+            </div>)}
+          </div>
+        </div>
+      )}
+
+      <div style={{background:C.navy,borderBottom:"1px solid rgba(200,169,106,0.15)",padding:"8px 24px",display:"flex",gap:"10px",alignItems:"center"}}>
+        <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 14px",fontSize:"10px",fontWeight:"bold",fontFamily:"monospace",cursor:"pointer"}} onClick={saveCurrentGrant}>Save Grant</button>
+        <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 14px",fontSize:"10px",fontWeight:"bold",fontFamily:"monospace",cursor:"pointer"}} onClick={()=>setShowSaved(true)}>Saved Grants {savedGrants.length>0&&"("+savedGrants.length+")"}</button>
+        <div style={{flex:1}}/>
+        <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 14px",fontSize:"10px",fontWeight:"bold",fontFamily:"monospace",cursor:"pointer"}} onClick={()=>setShowOnboarding(true)}>How to Use</button>
+        <button style={{background:"transparent",border:"1px solid "+C.gold,color:C.gold,borderRadius:"4px",padding:"6px 14px",fontSize:"10px",fontWeight:"bold",fontFamily:"monospace",cursor:"pointer"}} onClick={()=>setShowFeedback(true)}>Feedback</button>
+      </div>
+
+      <AppHeader user={user} onLogout={()=>{ localStorage.removeItem("sos_session"); window.location.reload(); }} currentGrant={grantName} loading={loading} loadingMsg={loadingMsg}/>
+
+      {/* API Key Banner */}
+      {(apiKeyMissing || showApiInput) && (
+        <div style={{ background:`${C.amber}15`, border:`1px solid ${C.amber}50`, borderTop:"none", padding:"16px 28px", display:"flex", alignItems:"center", gap:16, flexWrap:"wrap" }}>
+          <span style={{ fontSize:12, fontFamily:"monospace", color:C.amber, flex:1 }}>⚠ API key required to use AI features. Enter your Anthropic API key below.</span>
+          <input style={{ ...inp({ width:320, marginBottom:0, fontSize:12 }), borderColor:`${C.amber}80` }} value={customApiKey} onChange={e=>setCustomApiKey(e.target.value)} placeholder="sk-ant-api03-..." type="password"/>
+          <button style={btn("gold",true)} onClick={saveKey}>Save Key</button>
+          <a href="https://console.anthropic.com" target="_blank" rel="noreferrer" style={{ fontSize:11, color:C.gold, fontFamily:"monospace" }}>Get API key →</a>
+        </div>
+      )}
+
+      {/* Phase Nav */}
+      <div style={{ padding:"20px 28px 0", borderBottom:`1px solid ${C.gold}20` }}>
+        <div style={{ display:"flex", gap:2, maxWidth:900 }}>
+          {PHASES.map((label,i) => (
+            <div key={i} className="phase-tab" onClick={()=>i<=phase&&setPhase(i)} style={{
+              padding:"10px 20px", fontSize:10, fontWeight:"bold", letterSpacing:"0.06em",
+              fontFamily:"monospace", textTransform:"uppercase", borderRadius:"4px 4px 0 0",
+              cursor:i<=phase?"pointer":"default",
+              background:phase===i?C.gold:i<phase?C.navyLight:C.navyDark,
+              color:phase===i?C.navy:i<phase?C.gold:C.gray,
+              borderBottom:phase===i?`none`:`1px solid ${C.gold}20`,
+            }}>{label}</div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ flex:1, padding:"28px", maxWidth:1000, margin:"0 auto", width:"100%", boxSizing:"border-box" }}>
+
+        {/* ══ PHASE 0 ══ */}
+        {phase===0 && (
+          <div className="fade-in">
+            <div style={card()}>
+              <div style={{ fontSize:12, color:C.gold, fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>⬡ Grant Setup</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
+                <div>
+                  <label style={lbl}>Grant Name / Nickname</label>
+                  <input style={inp()} value={grantName} onChange={e=>setGrantName(e.target.value)} placeholder="e.g. RAISE 2025 — Road Project"/>
+                </div>
+                <div>
+                  <label style={lbl}>Tribe (auto-filled from account)</label>
+                  <input style={{ ...inp(), color:C.gray }} value={user.tribe||""} readOnly/>
+                </div>
+              </div>
+              <div style={{ marginBottom:16 }}>
+                <label style={lbl}>Project Description</label>
+                <textarea style={{ ...inp({ resize:"vertical", minHeight:80 }) }} value={projectDesc} onChange={e=>setProjectDesc(e.target.value)} placeholder="Briefly describe what you are building and who it benefits..."/>
+              </div>
+              <div>
+                <label style={lbl}>Match Source (if known)</label>
+                <input style={inp()} value={matchSource} onChange={e=>setMatchSource(e.target.value)} placeholder="e.g. Tribal general fund, BIA funds, in-kind labor"/>
+              </div>
+            </div>
+
+            <div style={card()}>
+              <div style={{ fontSize:12, color:C.gold, fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>⬡ NOFO Text Input</div>
+              <p style={{ fontSize:12, color:C.gray, fontFamily:"monospace", marginBottom:16, lineHeight:1.6 }}>
+                Paste the full Notice of Funding Opportunity text. Include program description, eligibility, scoring criteria, required components, and compliance requirements for best results.
+              </p>
+              <textarea style={{ ...inp({ resize:"vertical", minHeight:220 }) }} value={nofoText} onChange={e=>setNofoText(e.target.value)} placeholder="Paste NOFO text here..."/>
+              <div style={{ background:`${C.gold}10`, border:`1px solid ${C.gold}30`, borderLeft:`3px solid ${C.gold}`, borderRadius:4, padding:"10px 14px", fontSize:11, fontFamily:"monospace", color:C.softWhite, lineHeight:1.6, marginTop:12 }}>
+                ◈ TIP: For best results, include the complete NOFO. The AI will extract scoring criteria, compliance requirements, and required attachments automatically.
+              </div>
+              <div style={{ display:"flex", gap:12, marginTop:20 }}>
+                <button style={btn("gold")} onClick={analyzeNOFO} disabled={loading}>
+                  {loading?<><LoadingDots/> Analyzing...</>:"▶ Analyze NOFO & Continue"}
+                </button>
+                <button style={btn("outline")} onClick={()=>setNofoText(SAMPLE_NOFO)}>Load Sample NOFO (Practice)</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ PHASE 1 ══ */}
+        {phase===1 && nofoAnalysis && (
+          <div className="fade-in">
+            <div style={card()}>
+              <div style={{ fontSize:12, color:C.gold, fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:16 }}>⬡ NOFO Analysis Results</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:24 }}>
+                <div>
+                  {[["Program",nofoAnalysis.program],["Agency",nofoAnalysis.agency],["Max Award",nofoAnalysis.maxAward],["Match Required",nofoAnalysis.match],["Deadline",nofoAnalysis.deadline]].map(([k,v])=>(
+                    <div key={k} style={{ marginBottom:10 }}>
+                      <span style={{ color:C.gold, fontSize:9, fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase" }}>{k}: </span>
+                      <span style={{ fontSize:12, fontFamily:"monospace", color:C.softWhite }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div style={{ fontSize:9, color:C.gold, fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Compliance Triggers</div>
+                  {[["Davis-Bacon Act",nofoAnalysis.davisBaconApplicable],["TERO Applicable",nofoAnalysis.teroApplicable],["NEPA Required",nofoAnalysis.nepaRequired],["2 CFR 200",nofoAnalysis.cfr200Applies]].map(([k,v])=>(
+                    <div key={k} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:7 }}>
+                      <span style={{ color:v?C.green:C.gray, fontSize:12 }}>{v?"●":"○"}</span>
+                      <span style={{ fontSize:11, fontFamily:"monospace", color:v?C.softWhite:C.gray }}>{k}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {divider()}
+              <div style={{ fontSize:9, color:C.gold, fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Scoring Criteria</div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
+                {nofoAnalysis.scoringCriteria?.map((c,i)=>(
+                  <div key={i} style={{ background:C.navyDark, border:`1px solid ${C.gold}30`, borderRadius:3, padding:"6px 12px", fontSize:11, fontFamily:"monospace" }}>
+                    <span style={{ color:C.gold }}>{c.weight}</span>
+                    <span style={{ color:C.gray }}> — </span>
+                    <span style={{ color:C.softWhite }}>{c.criterion}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ background:`${C.green}15`, border:`1px solid ${C.green}40`, borderRadius:4, padding:16 }}>
+                <div style={{ color:C.green, fontWeight:"bold", fontSize:13, fontFamily:"monospace", marginBottom:8 }}>● {nofoAnalysis.goNoGo?.recommendation || "PROCEED"}</div>
+                {Object.entries(nofoAnalysis.goNoGo||{}).filter(([k])=>k!=="recommendation").map(([k,v])=>(
+                  <div key={k} style={{ fontSize:11, fontFamily:"monospace", color:C.gray, marginBottom:4 }}>
+                    <span style={{ color:C.gold }}>{k}: </span>{v}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={card()}>
+              <div style={{ fontSize:12, color:C.gold, fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>⬡ Grant Draft Generator</div>
+              <p style={{ fontSize:12, color:C.gray, fontFamily:"monospace", marginBottom:16, lineHeight:1.6 }}>
+                Click any section tab to generate it. The AI writes directly to your NOFO's scoring criteria and compliance requirements.
+              </p>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:16 }}>
+                {DRAFT_SECTIONS.map(s=>(
+                  <div key={s} className="sec-tab" onClick={()=>setActiveTab(s)} style={{
+                    padding:"7px 14px", fontSize:10, fontFamily:"monospace", fontWeight:"bold",
+                    letterSpacing:"0.06em", textTransform:"uppercase", cursor:"pointer", borderRadius:3,
+                    background:activeTab===s?C.gold:C.navyDark,
+                    color:activeTab===s?C.navy:drafts[s]?C.gold:C.gray,
+                    border:`1px solid ${activeTab===s?C.gold:C.gold+"30"}`,
+                  }}>
+                    {drafts[s]?"✓ ":""}{s}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display:"flex", gap:12, marginBottom:16, flexWrap:"wrap" }}>
+                <button style={btn("gold",true)} onClick={()=>generateSection(activeTab)} disabled={loading}>
+                  {loading&&loadingMsg.includes(activeTab)?<><LoadingDots/> Generating...</>:`▶ Draft: ${activeTab}`}
+                </button>
+                {Object.keys(drafts).length>0 && (
+                  <button style={btn("green",true)} onClick={()=>{ setPhase(2); runCompliance(); }} disabled={loading}>
+                    ▶ Run Compliance Check
+                  </button>
+                )}
+              </div>
+
+              {drafts[activeTab] ? (
+                <>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                    <span style={{ fontSize:10, color:C.gold, fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase" }}>{activeTab}</span>
+                    <CopyBtn text={drafts[activeTab]}/>
+                  </div>
+                  <div style={{ background:C.navyDark, border:`1px solid ${C.gold}25`, borderRadius:4, padding:20, fontSize:12, fontFamily:"monospace", lineHeight:1.8, whiteSpace:"pre-wrap", maxHeight:480, overflowY:"auto", color:C.softWhite }}>
+                    {drafts[activeTab]}
+                  </div>
+                </>
+              ) : (
+                <div style={{ background:C.navyDark, border:`1px solid ${C.gold}25`, borderRadius:4, padding:40, textAlign:"center", color:C.gray, fontSize:12, fontFamily:"monospace" }}>
+                  {loading?<><LoadingDots/> {loadingMsg}</>:`Click "Draft: ${activeTab}" to generate this section`}
+                </div>
+              )}
+              <div style={{ background:`${C.red}12`, border:`1px solid ${C.red}40`, borderLeft:`3px solid ${C.red}`, borderRadius:4, padding:"10px 14px", fontSize:11, fontFamily:"monospace", color:C.softWhite, lineHeight:1.6, marginTop:12 }}>
+                ⚠ AUDIT NOTE: All [INSERT: ...] placeholders must be replaced with verified, documented data before submission. Keep source documents on file for every inserted data point.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ PHASE 2/3: COMPLIANCE ══ */}
+        {(phase===2||phase===3) && (
+          <div className="fade-in" style={card()}>
+            <div style={{ fontSize:12, color:C.gold, fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:16 }}>⬡ Compliance Analysis</div>
+            {loading&&!complianceResults ? (
+              <div style={{ textAlign:"center", padding:60, color:C.gray, fontFamily:"monospace" }}>
+                <div style={{ marginBottom:16, fontSize:13 }}>Checking against federal requirements</div>
+                <LoadingDots/>
+              </div>
+            ) : complianceResults ? (
+              <>
+                <div style={{ display:"flex", alignItems:"center", gap:28, marginBottom:24 }}>
+                  <div style={{ textAlign:"center", flexShrink:0 }}>
+                    <div style={{ fontSize:56, fontWeight:"bold", fontFamily:"monospace", color:complianceResults.overallScore>=80?C.green:complianceResults.overallScore>=60?C.amber:C.red }}>
+                      {complianceResults.overallScore}
+                    </div>
+                    <div style={{ fontSize:9, color:C.gray, fontFamily:"monospace", letterSpacing:"0.06em", textTransform:"uppercase" }}>COMPLIANCE SCORE</div>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, color:C.white, fontFamily:"monospace", marginBottom:10 }}>{complianceResults.overallStatus}</div>
+                    {complianceResults.criticalFlags?.length>0 && (
+                      <div style={{ background:`${C.red}12`, border:`1px solid ${C.red}40`, borderLeft:`3px solid ${C.red}`, borderRadius:4, padding:"10px 14px", fontSize:11, fontFamily:"monospace", color:C.softWhite, lineHeight:1.6 }}>
+                        ⚠ Critical: {complianceResults.criticalFlags.join(" · ")}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {divider()}
+                <div style={{ fontSize:10, color:C.gold, fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:12 }}>Compliance Findings</div>
+                {complianceResults.checks?.map((check,i)=>(
+                  <div key={i} className="compliance-item" style={{ display:"flex", gap:12, padding:"12px 14px", background:check.pass===true?`${C.green}15`:check.pass===false?`${C.red}15`:`${C.amber}15`, border:`1px solid ${check.pass===true?C.green:check.pass===false?C.red:C.amber}40`, borderRadius:4, marginBottom:8 }}>
+                    <span style={{ fontSize:16, flexShrink:0 }}>{check.pass===true?"✓":check.pass===false?"✗":"⚠"}</span>
+                    <div style={{ fontSize:11, fontFamily:"monospace", flex:1, lineHeight:1.6 }}>
+                      <div style={{ fontWeight:"bold", color:C.white, marginBottom:3 }}>{check.category}</div>
+                      <div style={{ color:C.softWhite }}>{check.finding}</div>
+                      {check.detail && <div style={{ color:C.gray, marginTop:3 }}>{check.detail}</div>}
+                      {check.action && <div style={{ color:C.amber, marginTop:4 }}>→ ACTION: {check.action}</div>}
+                    </div>
+                  </div>
+                ))}
+                {complianceResults.missingDocuments?.length>0 && (
+                  <>
+                    {divider()}
+                    <div style={{ fontSize:10, color:C.gold, fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10 }}>Missing / Unconfirmed Documents</div>
+                    {complianceResults.missingDocuments.map((d,i)=>(
+                      <div key={i} style={{ display:"flex", gap:8, marginBottom:6, fontSize:11, fontFamily:"monospace", color:C.softWhite }}>
+                        <span style={{ color:C.red }}>○</span>{d}
+                      </div>
+                    ))}
+                  </>
+                )}
+                <div style={{ display:"flex", gap:12, marginTop:24 }}>
+                  <button style={btn("gold")} onClick={()=>setPhase(3)}>▶ Open Execution Tracker</button>
+                  <button style={btn("outline")} onClick={()=>setPhase(1)}>← Back to Draft</button>
+                </div>
+              </>
+            ):null}
+          </div>
+        )}
+
+        {/* ══ PHASE 3: EXECUTION TRACKER ══ */}
+        {phase===3 && (
+          <div className="fade-in">
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:20 }}>
+              {[
+                { label:"Grant", value:grantName||"RAISE", icon:"⬡" },
+                { label:"Conditions Complete", value:`${completeConds}/${tracker.conditions.length}`, icon:"✓" },
+                { label:"Hours Logged", value:totalHours.toFixed(1), icon:"⏱" },
+                { label:"Expenditures", value:`$${totalSpend.toLocaleString()}`, icon:"$" },
+              ].map(s=>(
+                <div key={s.label} style={{ background:C.navy, border:`1px solid ${C.gold}25`, borderRadius:6, padding:18 }}>
+                  <div style={{ fontSize:9, color:C.gold, fontFamily:"monospace", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>{s.label}</div>
+                  <div style={{ fontSize:22, fontWeight:"bold", color:C.white, fontFamily:"monospace" }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+              {/* Award Conditions */}
+              <div style={card({ marginBottom:0 })}>
+                <div style={{ fontSize:11, color:C.gold, fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:14 }}>⬡ Award Conditions</div>
+                <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+                  <input style={{ ...inp({ marginBottom:0, flex:1 }), fontSize:12 }} value={newCondition} onChange={e=>setNewCondition(e.target.value)} placeholder="Add condition from award agreement..." onKeyDown={e=>e.key==="Enter"&&addCondition()}/>
+                  <button style={{ ...btn("gold",true), flexShrink:0 }} onClick={addCondition}>Add</button>
+                </div>
+                {tracker.conditions.length===0 ? (
+                  <div style={{ color:C.gray, fontSize:11, fontFamily:"monospace", padding:"10px 0" }}>No conditions logged yet.</div>
+                ) : tracker.conditions.map((c,i)=>(
+                  <div key={i} onClick={()=>toggleCond(i)} style={{ display:"flex", gap:10, alignItems:"flex-start", padding:"9px 0", borderBottom:`1px solid ${C.gold}12`, cursor:"pointer" }}>
+                    <span style={{ color:c.status==="Complete"?C.green:C.gray, fontSize:16, flexShrink:0 }}>{c.status==="Complete"?"●":"○"}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:11, fontFamily:"monospace", color:c.status==="Complete"?C.gray:C.softWhite, textDecoration:c.status==="Complete"?"line-through":"none" }}>{c.text}</div>
+                      <div style={{ fontSize:9, color:C.gray, fontFamily:"monospace", marginTop:2 }}>{c.date} · {c.status}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Time Log */}
+              <div style={card({ marginBottom:0 })}>
+                <div style={{ fontSize:11, color:C.gold, fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:14 }}>⬡ Time Log</div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                  <div>
+                    <label style={{ ...lbl, marginBottom:4 }}>Employee</label>
+                    <input style={{ ...inp({ marginBottom:0 }), fontSize:11 }} value={newTime.employee} onChange={e=>setNewTime(p=>({...p,employee:e.target.value}))} placeholder="Name"/>
+                  </div>
+                  <div>
+                    <label style={{ ...lbl, marginBottom:4 }}>Hours</label>
+                    <input style={{ ...inp({ marginBottom:0 }), fontSize:11 }} value={newTime.hours} onChange={e=>setNewTime(p=>({...p,hours:e.target.value}))} placeholder="0.0" type="number"/>
+                  </div>
+                </div>
+                <input style={{ ...inp({ marginBottom:8 }), fontSize:11 }} value={newTime.task} onChange={e=>setNewTime(p=>({...p,task:e.target.value}))} placeholder="Task description"/>
+                <input style={{ ...inp({ marginBottom:10 }), fontSize:11 }} value={newTime.date} onChange={e=>setNewTime(p=>({...p,date:e.target.value}))} type="date"/>
+                <button style={btn("gold",true)} onClick={addTime}>Log Time Entry</button>
+                <div style={{ marginTop:14, maxHeight:180, overflowY:"auto" }}>
+                  {tracker.timeEntries.length===0 ? (
+                    <div style={{ color:C.gray, fontSize:11, fontFamily:"monospace" }}>No time entries yet.</div>
+                  ) : tracker.timeEntries.map((t,i)=>(
+                    <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"7px 0", borderBottom:`1px solid ${C.gold}12`, fontSize:11, fontFamily:"monospace" }}>
+                      <span style={{ color:C.softWhite }}>{t.employee} — {t.task}</span>
+                      <span style={{ color:C.gold, flexShrink:0, marginLeft:8 }}>{t.hours}h</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Purchase Log */}
+            <div style={card()}>
+              <div style={{ fontSize:11, color:C.gold, fontFamily:"monospace", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:14 }}>⬡ Purchase Log</div>
+              <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr auto", gap:10, alignItems:"end", marginBottom:14 }}>
+                {[["Description","desc","Item or service description"],["Vendor","vendor","Vendor name"],["Budget Line","budget","Category"],["Amount","amount","$0.00"]].map(([label,key,ph])=>(
+                  <div key={key}>
+                    <label style={{ ...lbl, marginBottom:4 }}>{label}</label>
+                    <input style={{ ...inp({ marginBottom:0 }), fontSize:11 }} value={newPurchase[key]} onChange={e=>setNewPurchase(p=>({...p,[key]:e.target.value}))} placeholder={ph} type={key==="amount"?"number":"text"}/>
+                  </div>
+                ))}
+                <button style={{ ...btn("gold",true), marginTop:18 }} onClick={addPurchase}>+ Add</button>
+              </div>
+              {tracker.purchases.length===0 ? (
+                <div style={{ color:C.gray, fontSize:11, fontFamily:"monospace" }}>No purchases logged yet. Log every expenditure the day it is made.</div>
+              ) : (
+                <>
+                  <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11, fontFamily:"monospace" }}>
+                    <thead>
+                      <tr style={{ background:C.navyDark }}>
+                        {["Date","Description","Vendor","Budget Line","Amount"].map(h=>(
+                          <th key={h} style={{ padding:"8px 10px", color:C.gold, fontWeight:"bold", letterSpacing:"0.06em", textAlign:"left", borderBottom:`1px solid ${C.gold}30`, fontSize:10 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tracker.purchases.map((p,i)=>(
+                        <tr key={i} style={{ background:i%2===0?C.navyDark:"transparent" }}>
+                          <td style={{ padding:"7px 10px", color:C.gray }}>{p.date}</td>
+                          <td style={{ padding:"7px 10px", color:C.softWhite }}>{p.desc}</td>
+                          <td style={{ padding:"7px 10px", color:C.softWhite }}>{p.vendor}</td>
+                          <td style={{ padding:"7px 10px", color:C.gray }}>{p.budget}</td>
+                          <td style={{ padding:"7px 10px", color:C.gold }}>${parseFloat(p.amount||0).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                      <tr style={{ borderTop:`1px solid ${C.gold}30` }}>
+                        <td colSpan={4} style={{ padding:"7px 10px", color:C.gold, fontWeight:"bold" }}>TOTAL</td>
+                        <td style={{ padding:"7px 10px", color:C.gold, fontWeight:"bold" }}>${totalSpend.toLocaleString()}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div style={{ background:`${C.red}12`, border:`1px solid ${C.red}40`, borderLeft:`3px solid ${C.red}`, borderRadius:4, padding:"10px 14px", fontSize:11, fontFamily:"monospace", color:C.softWhite, lineHeight:1.6, marginTop:12 }}>
+                    ⚠ Every purchase must have a procurement memo and invoice in your Google Sheets tracker. This log is for real-time capture only.
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// ROOT APP — ROUTER
+// ─────────────────────────────────────────────
+function App() {
+  const [view, setView] = useState("landing"); // landing | login | signup | app
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const session = localStorage.getItem("sos_session");
+    if (session) { try { setUser(JSON.parse(session)); setView("app"); } catch(e){} }
+  }, []);
+
+  const handleAuth = (userData) => { setUser(userData); setView("app"); };
+
+  if (view==="app" && user) return <GrantApp user={user}/>;
+  if (view==="login") return <AuthPage mode="login" onAuth={handleAuth} onSwitch={()=>setView("signup")}/>;
+  if (view==="signup") return <AuthPage mode="signup" onAuth={handleAuth} onSwitch={()=>setView("login")}/>;
+  return <LandingPage onLogin={()=>setView("login")} onSignup={()=>setView("signup")}/>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
